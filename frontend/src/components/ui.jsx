@@ -293,7 +293,7 @@ export function ChatBubble({ msg }) {
       }}>
         {msg.thinking
           ? <span className="thinking-dots"><span></span><span></span><span></span></span>
-          : <Md text={msg.text} />}
+          : <Md text={msg.text} className={isUser ? 'prose-on-dark' : ''} />}
         {msg.streaming ? <span className="caret"></span> : null}
       </div>
     </div>

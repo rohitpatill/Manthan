@@ -190,6 +190,11 @@ input, textarea, select { font-family: var(--font); }
 .prose p:last-child { margin-bottom: 0; }
 .prose strong { color: var(--ink); font-weight: 700; }
 
+/* User chat bubble: white text on the blue bubble */
+.prose-on-dark, .prose-on-dark p { color: #fff; }
+.prose-on-dark strong { color: #fff; }
+.prose-on-dark em { color: rgba(255,255,255,.9); }
+
 /* ---------- Misc ---------- */
 .fade-up { animation: fadeUp .25s ease both; }
 @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } }
