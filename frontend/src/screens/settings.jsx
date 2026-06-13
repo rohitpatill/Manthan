@@ -10,7 +10,14 @@ import { expertNeedsReassignment } from './experts';
 export function Settings() {
   const state = useStore();
   const [confirmReset, setConfirmReset] = useState(null); // 'data' | 'all'
+  const [synthWords, setSynthWords] = useState(state.synthesisMaxWords);
   const orphans = state.experts.filter(expertNeedsReassignment);
+
+  const saveSynthWords = (raw) => {
+    const n = Math.max(50, Math.min(2000, Number(raw) || 700));
+    setSynthWords(n);
+    if (n !== state.synthesisMaxWords) API.setSynthesisMaxWords(n);
+  };
 
   return (
     <Page title="Settings" sub="Provider keys, the default model behind Manthan AI, and local data controls.">
@@ -46,6 +53,23 @@ export function Settings() {
               <ManthanMark size={20} color="#E8B54D" />
             </span>
             <ModelPicker value={state.defaultModel} onChange={(v) => API.setDefaultModel(v.provider, v.model)} />
+          </div>
+        </section>
+
+        <section>
+          <h3 style={{ fontSize: 15, marginBottom: 4 }}>Synthesis length</h3>
+          <p style={{ fontSize: 12.5, color: 'var(--ink-3)', marginBottom: 14 }}>
+            The maximum length of the combined verdict Manthan AI writes after each round. Raise it for
+            a thorough, detailed synthesis; lower it for a tight summary. Each expert's own answer length
+            is set per expert in the Experts library.
+          </p>
+          <div className="card" style={{ padding: 18, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <input className="input" type="number" min={50} max={2000} step={50}
+              style={{ maxWidth: 140 }}
+              value={synthWords}
+              onChange={(e) => setSynthWords(e.target.value === '' ? '' : Number(e.target.value))}
+              onBlur={(e) => saveSynthWords(e.target.value)} />
+            <span style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>words · default 700</span>
           </div>
         </section>
 

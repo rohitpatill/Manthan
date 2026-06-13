@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+import config
 import db
 from providers import PROVIDER_CATALOG, ProviderError, get_provider, model_exists
 
@@ -15,6 +16,10 @@ class ProviderKeyIn(BaseModel):
 class DefaultModelIn(BaseModel):
     provider_type: str
     model_id: str
+
+
+class AppSettingsIn(BaseModel):
+    synthesis_max_words: int
 
 
 def _provider_list(conn) -> list[dict]:
@@ -32,7 +37,10 @@ async def list_providers():
             "provider_type": db.get_setting(conn, "default_provider_type"),
             "model_id": db.get_setting(conn, "default_model_id"),
         }
-    return {"status": "ok", "providers": providers, "catalog": PROVIDER_CATALOG, "default_model": default_model}
+        synthesis_max_words = int(db.get_setting(
+            conn, "synthesis_max_words", str(config.SYNTHESIS_MAX_WORDS_DEFAULT)))
+    return {"status": "ok", "providers": providers, "catalog": PROVIDER_CATALOG,
+            "default_model": default_model, "synthesis_max_words": synthesis_max_words}
 
 
 @router.post("")
@@ -91,4 +99,13 @@ async def set_default_model(payload: DefaultModelIn):
             raise HTTPException(status_code=400, detail=f"Provider '{payload.provider_type}' has no valid API key.")
         db.set_setting(conn, "default_provider_type", payload.provider_type)
         db.set_setting(conn, "default_model_id", payload.model_id)
+    return {"status": "ok"}
+
+
+@router.put("/app-settings")
+async def set_app_settings(payload: AppSettingsIn):
+    if not 50 <= payload.synthesis_max_words <= 2000:
+        raise HTTPException(status_code=400, detail="Synthesis max words must be between 50 and 2000.")
+    with db.get_conn() as conn:
+        db.set_setting(conn, "synthesis_max_words", str(payload.synthesis_max_words))
     return {"status": "ok"}

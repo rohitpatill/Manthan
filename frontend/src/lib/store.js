@@ -12,6 +12,7 @@ const state = {
   onboarded: !!localStorage.getItem(ONBOARD_KEY),
   keys: {},            // provider -> {masked, status: 'valid'|'invalid'|'validating', error}
   defaultModel: null,  // {provider, model}
+  synthesisMaxWords: 700,
   experts: [],
   sessions: [],        // summary rows
   details: {},         // sessionId -> normalized detail
@@ -85,6 +86,7 @@ function mapExpert(e) {
     id: e.id, name: e.name, title: e.title, persona: e.persona,
     avatar: e.avatar_url ? { value: e.avatar_url } : null,
     provider: e.provider_type, model: e.model_id,
+    maxWords: e.max_words ?? 300,
     starter: !!e.is_starter, color: colorFor(e.id),
   };
 }
@@ -93,7 +95,7 @@ function mapSessionExpert(se) {
   return {
     id: se.id, expertId: se.expert_id, name: se.name, title: se.title, persona: se.persona,
     avatar: se.avatar_url ? { value: se.avatar_url } : null,
-    provider: se.provider_type, model: se.model_id, color: colorFor(se.id),
+    provider: se.provider_type, model: se.model_id, maxWords: se.max_words ?? 300, color: colorFor(se.id),
   };
 }
 
@@ -176,6 +178,7 @@ async function loadProviders() {
   state.keys = keys;
   state.defaultModel = data.default_model && data.default_model.provider_type
     ? { provider: data.default_model.provider_type, model: data.default_model.model_id } : null;
+  state.synthesisMaxWords = data.synthesis_max_words ?? 700;
 }
 
 async function loadExperts() {
@@ -373,6 +376,10 @@ export const API = {
     await http('PUT', '/api/providers/default-model', { provider_type: provider, model_id: model });
     state.defaultModel = { provider, model }; notify();
   },
+  async setSynthesisMaxWords(words) {
+    await http('PUT', '/api/providers/app-settings', { synthesis_max_words: words });
+    state.synthesisMaxWords = words; notify();
+  },
   async completeOnboarding() {
     try { await http('POST', '/api/seed-starters'); await loadExperts(); } catch (e) {}
     state.onboarded = true; localStorage.setItem(ONBOARD_KEY, '1'); notify();
@@ -388,6 +395,7 @@ export const API = {
       name: expert.name, title: expert.title, persona: expert.persona,
       avatar_url: expert.avatar ? expert.avatar.value : '',
       provider_type: expert.provider, model_id: expert.model,
+      max_words: expert.maxWords ?? 300,
     };
     if (expert.id) await http('PUT', `/api/experts/${expert.id}`, body);
     else await http('POST', '/api/experts', body);
@@ -409,6 +417,7 @@ export const API = {
     const draft = data.expert ? {
       name: data.expert.name, title: data.expert.title, persona: data.expert.persona,
       provider: data.expert.suggested_provider_type, model: data.expert.suggested_model_id,
+      maxWords: data.expert.suggested_max_words ?? 300,
     } : null;
     return { message: data.assistant_message, ready: data.ready, draft };
   },

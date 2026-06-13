@@ -14,7 +14,7 @@ export function expertNeedsReassignment(expert) { return !API.keyValid(expert.pr
 export function ExpertEditor({ initial, onClose }) {
   const [draft, setDraft] = useState(() => ({
     name: '', title: '', persona: '', avatar: null,
-    provider: null, model: null,
+    provider: null, model: null, maxWords: 300,
     ...(initial || {}),
   }));
   const [avatarMode, setAvatarMode] = useState('upload');
@@ -92,6 +92,16 @@ export function ExpertEditor({ initial, onClose }) {
           <ModelPicker value={draft.provider ? { provider: draft.provider, model: draft.model } : null}
             onChange={(v) => setDraft((d) => ({ ...d, provider: v.provider, model: v.model }))} />
           <p className="field-hint">Match the model to the kind of thinking — only providers with valid keys are listed.</p>
+        </div>
+
+        <div>
+          <label className="field-label">Max answer length (words)</label>
+          <input className="input" type="number" min={50} max={500} step={10}
+            style={{ maxWidth: 140 }}
+            value={draft.maxWords}
+            onChange={(e) => set('maxWords', e.target.value === '' ? '' : Math.max(50, Math.min(500, Number(e.target.value) || 0)))}
+            onBlur={(e) => { if (e.target.value === '' || Number(e.target.value) < 50) set('maxWords', 300); }} />
+          <p className="field-hint">How long this expert's answers may run, in both rounds. ~300 is the sweet spot — long enough to reason, short enough to read. Max 500.</p>
         </div>
         {error ? <p style={{ color: 'var(--red)', fontSize: 12.5 }}><Icon name="warn" size={13} /> {error}</p> : null}
       </div>

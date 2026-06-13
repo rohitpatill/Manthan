@@ -19,6 +19,7 @@ class ExpertIn(BaseModel):
     avatar_url: str = ""
     provider_type: str
     model_id: str
+    max_words: int = Field(default=300, ge=50, le=500)
 
 
 class BuilderMessage(BaseModel):
@@ -59,10 +60,10 @@ async def create_expert(payload: ExpertIn):
     with db.get_conn() as conn:
         llm.validate_model_choice(conn, payload.provider_type, payload.model_id)
         cursor = conn.execute(
-            """INSERT INTO experts (name, title, persona, avatar_url, provider_type, model_id)
-               VALUES (?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO experts (name, title, persona, avatar_url, provider_type, model_id, max_words)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (payload.name.strip(), payload.title.strip(), payload.persona.strip(),
-             _normalize_avatar(payload.avatar_url), payload.provider_type, payload.model_id),
+             _normalize_avatar(payload.avatar_url), payload.provider_type, payload.model_id, payload.max_words),
         )
         expert = _expert_dict(conn.execute("SELECT * FROM experts WHERE id = ?", (cursor.lastrowid,)).fetchone())
     return {"status": "ok", "expert": expert}
@@ -76,9 +77,9 @@ async def update_expert(expert_id: int, payload: ExpertIn):
         llm.validate_model_choice(conn, payload.provider_type, payload.model_id)
         conn.execute(
             """UPDATE experts SET name = ?, title = ?, persona = ?, avatar_url = ?,
-               provider_type = ?, model_id = ?, is_starter = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?""",
+               provider_type = ?, model_id = ?, max_words = ?, is_starter = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?""",
             (payload.name.strip(), payload.title.strip(), payload.persona.strip(),
-             _normalize_avatar(payload.avatar_url), payload.provider_type, payload.model_id, expert_id),
+             _normalize_avatar(payload.avatar_url), payload.provider_type, payload.model_id, payload.max_words, expert_id),
         )
         expert = _expert_dict(conn.execute("SELECT * FROM experts WHERE id = ?", (expert_id,)).fetchone())
     return {"status": "ok", "expert": expert}
@@ -91,10 +92,10 @@ async def duplicate_expert(expert_id: int):
         if not source:
             raise HTTPException(status_code=404, detail="Expert not found.")
         cursor = conn.execute(
-            """INSERT INTO experts (name, title, persona, avatar_url, provider_type, model_id)
-               VALUES (?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO experts (name, title, persona, avatar_url, provider_type, model_id, max_words)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (f"{source['name']} (copy)", source["title"], source["persona"],
-             source["avatar_url"], source["provider_type"], source["model_id"]),
+             source["avatar_url"], source["provider_type"], source["model_id"], source["max_words"]),
         )
         expert = _expert_dict(conn.execute("SELECT * FROM experts WHERE id = ?", (cursor.lastrowid,)).fetchone())
     return {"status": "ok", "expert": expert}

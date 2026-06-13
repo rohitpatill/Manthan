@@ -56,6 +56,7 @@ def init_db() -> None:
                 avatar_url TEXT NOT NULL DEFAULT '',
                 provider_type TEXT NOT NULL,
                 model_id TEXT NOT NULL,
+                max_words INTEGER NOT NULL DEFAULT 300,
                 is_starter INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -87,6 +88,7 @@ def init_db() -> None:
                 avatar_url TEXT NOT NULL DEFAULT '',
                 provider_type TEXT NOT NULL,
                 model_id TEXT NOT NULL,
+                max_words INTEGER NOT NULL DEFAULT 300,
                 sort_order INTEGER NOT NULL DEFAULT 0
             );
 
@@ -133,6 +135,12 @@ def init_db() -> None:
         session_columns = {row["name"] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()}
         if "pending_brief" not in session_columns:
             conn.execute("ALTER TABLE sessions ADD COLUMN pending_brief TEXT NOT NULL DEFAULT ''")
+        expert_columns = {row["name"] for row in conn.execute("PRAGMA table_info(experts)").fetchall()}
+        if "max_words" not in expert_columns:
+            conn.execute("ALTER TABLE experts ADD COLUMN max_words INTEGER NOT NULL DEFAULT 300")
+        session_expert_columns = {row["name"] for row in conn.execute("PRAGMA table_info(session_experts)").fetchall()}
+        if "max_words" not in session_expert_columns:
+            conn.execute("ALTER TABLE session_experts ADD COLUMN max_words INTEGER NOT NULL DEFAULT 300")
 
 
 def mask_key(key: str) -> str:

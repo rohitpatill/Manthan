@@ -98,7 +98,8 @@ async def _run_one_expert(session: dict, expert: dict, round_number: int,
     """Run a single expert call, pushing SSE events to the shared queue and persisting the result."""
     expert_id = expert["id"]
     purpose = f"expert_r{round_number}"
-    system = prompts.expert_system_prompt(expert["name"], expert["title"], expert["persona"])
+    max_words = expert.get("max_words") or 300
+    system = prompts.expert_system_prompt(expert["name"], expert["title"], expert["persona"], max_words)
     messages: list[dict] = []
     await queue.put(sse({"type": "expert_start", "expert_id": expert_id, "name": expert["name"], "round": round_number}))
     try:
@@ -111,7 +112,7 @@ async def _run_one_expert(session: dict, expert: dict, round_number: int,
             peers = [a for eid, a in round1_answers.items() if eid != expert_id]
             messages = [{"role": "user", "content": prompts.round2_user_message(
                 session["compiled_brief"], own["content"] if own else "(you gave no round-1 answer)", peers,
-                synthesis=round1_synthesis,
+                synthesis=round1_synthesis, max_words=max_words,
             )}]
         provider = get_provider(expert["provider_type"])
         full_text: list[str] = []
@@ -247,6 +248,15 @@ async def run_round(ctx: dict) -> AsyncIterator[str]:
     yield sse({"type": "stage_done", "stage": f"round{round_number}", "session_status": status})
 
 
+def _synthesis_max_words(conn) -> int:
+    """Global, user-editable synthesis word limit (Settings); falls back to the default."""
+    raw = db.get_setting(conn, "synthesis_max_words", str(config.SYNTHESIS_MAX_WORDS_DEFAULT))
+    try:
+        return max(50, min(2000, int(raw)))
+    except (TypeError, ValueError):
+        return config.SYNTHESIS_MAX_WORDS_DEFAULT
+
+
 def validate_synthesis(session_id: int, round_number: int) -> dict:
     """Validate synthesis preconditions BEFORE streaming; returns context for run_synthesis."""
     with db.get_conn() as conn:
@@ -259,6 +269,7 @@ def validate_synthesis(session_id: int, round_number: int) -> dict:
             raise HTTPException(status_code=400, detail=f"Round {round_number} has not completed yet.")
         provider_type, model_id = llm.get_default_model(conn)
         api_key = llm.get_api_key(conn, provider_type)
+        synthesis_max_words = _synthesis_max_words(conn)
         experts = load_session_experts(conn, session_id)
         answers = db.rows_to_dicts(conn.execute(
             """SELECT r.session_expert_id, r.content, r.status, se.name, se.title
@@ -272,7 +283,8 @@ def validate_synthesis(session_id: int, round_number: int) -> dict:
     if not done_answers:
         raise HTTPException(status_code=400, detail="No successful expert answers to synthesize.")
     return {"session": session, "round_number": round_number, "provider_type": provider_type,
-            "model_id": model_id, "api_key": api_key, "done_answers": done_answers, "missing": missing}
+            "model_id": model_id, "api_key": api_key, "done_answers": done_answers, "missing": missing,
+            "synthesis_max_words": synthesis_max_words}
 
 
 async def run_synthesis(ctx: dict) -> AsyncIterator[str]:
@@ -287,7 +299,7 @@ async def run_synthesis(ctx: dict) -> AsyncIterator[str]:
 
     yield sse({"type": "synthesis_start", "round": round_number})
     provider = get_provider(provider_type)
-    system = prompts.synthesis_system_prompt()
+    system = prompts.synthesis_system_prompt(ctx.get("synthesis_max_words") or config.SYNTHESIS_MAX_WORDS_DEFAULT)
     user_message = prompts.synthesis_user_message(session["compiled_brief"], done_answers, round_number, missing)
     purpose = f"synthesis_r{round_number}"
     try:

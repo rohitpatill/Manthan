@@ -48,9 +48,14 @@ Output exactly one raw JSON object, no markdown fences:
     "title": "...",
     "persona": "...",
     "suggested_provider_type": "openai|gemini|anthropic",
-    "suggested_model_id": "..."
+    "suggested_model_id": "...",
+    "suggested_max_words": 300
   } or null if not ready
 }
+
+suggested_max_words is the maximum word count this expert's answers should respect. Choose a
+value between 50 and 500. Default to 300 unless the user explicitly asks for shorter or longer
+responses (e.g. "keep it brief" → a smaller number; "I want detailed answers" → a larger one).
 """.strip()
 
 SUGGEST_SYSTEM_PROMPT = """
@@ -63,7 +68,7 @@ Only use ids that exist in the provided library.
 """.strip()
 
 
-def expert_system_prompt(name: str, title: str, persona: str) -> str:
+def expert_system_prompt(name: str, title: str, persona: str, max_words: int = 300) -> str:
     return f"""
 You are {name} — {title}.
 
@@ -77,11 +82,11 @@ Format your answer EXACTLY like this:
 - First line: "STANCE: <one sentence summarizing your position/verdict>"
 - Then your full reasoning in clear prose (you may use short paragraphs or bullet points).
 
-Hard limit: keep your entire answer under 450 words. Stay fully in character.
+Hard limit: keep your entire answer under {max_words} words. Stay fully in character.
 """.strip()
 
 
-def round2_user_message(brief: str, own_answer: str, peers: list[dict], synthesis: str = "") -> str:
+def round2_user_message(brief: str, own_answer: str, peers: list[dict], synthesis: str = "", max_words: int = 300) -> str:
     peer_blocks = "\n\n".join(
         f"### {i}. {p['name']} — {p['title']}\n{p['content']}"
         for i, p in enumerate(peers, start=1)
@@ -119,12 +124,12 @@ Write your round-2 position. Engage directly with the other experts — name the
 point made against your view and respond to it. Revise, defend, or update your opinion
 honestly; do not change your mind just to agree, and do not dig in just to be consistent.
 
-Same format as before — first line "STANCE: <one sentence>", then your reasoning. Under 450 words.
+Same format as before — first line "STANCE: <one sentence>", then your reasoning. Under {max_words} words.
 """.strip()
 
 
-def synthesis_system_prompt() -> str:
-    return """
+def synthesis_system_prompt(max_words: int = 700) -> str:
+    return f"""
 You are Manthan AI performing the final synthesis of an expert council deliberation.
 
 You will receive the problem brief and every expert's answer. Produce the combined verdict:
@@ -136,7 +141,7 @@ You will receive the problem brief and every expert's answer. Produce the combin
 6. A clear, actionable final recommendation.
 
 If you are told some experts failed to respond, explicitly note their absence.
-Write in clear prose with headed sections. Keep it under 700 words.
+Write in clear prose with headed sections. Keep it under {max_words} words.
 """.strip()
 
 

@@ -41,6 +41,8 @@ MOCK_MODE = os.getenv("MANTHAN_MOCK") == "1"
 # Word cap turned into a token budget for expert answers (~500 words).
 EXPERT_MAX_TOKENS = 900
 SYNTHESIS_MAX_TOKENS = 1500
+# Default global word limit for the synthesis (user-editable in Settings).
+SYNTHESIS_MAX_WORDS_DEFAULT = 700
 INTAKE_MAX_TOKENS = 800
 BUILDER_MAX_TOKENS = 1200
 
