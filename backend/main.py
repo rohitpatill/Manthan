@@ -136,13 +136,26 @@ async def seed_starters():
 
 
 @app.post("/api/admin/clear-data")
-async def clear_data(keep_keys: bool = True):
-    """Wipe sessions, usage, and experts (and optionally provider keys/settings).
-    Used by the Settings screen's 'start from scratch' action."""
+async def clear_data(keep_keys: bool = True, sessions: bool = True,
+                     experts: bool = True, analytics: bool = True):
+    """Selectively wipe local data. The three flags (sessions, experts, analytics) are
+    independent — the session_experts snapshot means deleting experts never corrupts
+    existing/frozen sessions. When keep_keys is False this is the 'start from scratch'
+    action: everything is wiped (all flags forced on) plus provider keys and settings.
+
+    - sessions  → sessions (+ cascaded responses/intake/session_experts)
+    - analytics → usage_log (per-LLM-call metering that powers the dashboard)
+    - experts   → the reusable expert library (frozen sessions keep their own copy)
+    """
+    if not keep_keys:
+        sessions = experts = analytics = True
     with db.get_conn() as conn:
-        conn.execute("DELETE FROM sessions")
-        conn.execute("DELETE FROM usage_log")
-        conn.execute("DELETE FROM experts")
+        if sessions:
+            conn.execute("DELETE FROM sessions")
+        if analytics:
+            conn.execute("DELETE FROM usage_log")
+        if experts:
+            conn.execute("DELETE FROM experts")
         if not keep_keys:
             conn.execute("DELETE FROM provider_configs")
             conn.execute("DELETE FROM settings")

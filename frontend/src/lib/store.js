@@ -527,8 +527,14 @@ export const API = {
   OUTPUT_CAP_TOK: 600,
 
   // --- admin ---
-  async clearData(keepKeys) {
-    await http('POST', `/api/admin/clear-data?keep_keys=${keepKeys}`);
+  async clearData(keepKeys, parts = { sessions: true, experts: true, analytics: true }) {
+    const q = new URLSearchParams({
+      keep_keys: String(keepKeys),
+      sessions: String(parts.sessions !== false),
+      experts: String(parts.experts !== false),
+      analytics: String(parts.analytics !== false),
+    });
+    await http('POST', `/api/admin/clear-data?${q.toString()}`);
     state.details = {};
     if (!keepKeys) { state.onboarded = false; localStorage.removeItem(ONBOARD_KEY); }
     await Promise.all([loadProviders(), loadExperts(), loadSessions()]);

@@ -9,14 +9,30 @@ import { expertNeedsReassignment } from './experts';
 
 export function Settings() {
   const state = useStore();
-  const [confirmReset, setConfirmReset] = useState(null); // 'data' | 'all'
+  const [confirmReset, setConfirmReset] = useState(null); // 'selective' | 'all'
   const [synthWords, setSynthWords] = useState(state.synthesisMaxWords);
+  const [parts, setParts] = useState({ sessions: false, experts: false, analytics: false });
+  const [busy, setBusy] = useState(false);
   const orphans = state.experts.filter(expertNeedsReassignment);
 
   const saveSynthWords = (raw) => {
     const n = Math.max(50, Math.min(2000, Number(raw) || 700));
     setSynthWords(n);
     if (n !== state.synthesisMaxWords) API.setSynthesisMaxWords(n);
+  };
+
+  const PART_LABELS = {
+    sessions: { title: 'Sessions', note: 'Every council session and its briefing chat, answers, and syntheses.' },
+    experts: { title: 'Experts', note: 'Your reusable persona library. Frozen sessions keep their own copy.' },
+    analytics: { title: 'Analytics', note: 'Usage and cost history that powers the dashboard.' },
+  };
+  const anySelected = parts.sessions || parts.experts || parts.analytics;
+  const selectedSummary = Object.keys(PART_LABELS)
+    .filter((k) => parts[k]).map((k) => PART_LABELS[k].title.toLowerCase()).join(', ');
+
+  const restoreStarters = async () => {
+    setBusy(true);
+    try { await API.seedStarters(); } finally { setBusy(false); }
   };
 
   return (
@@ -80,12 +96,37 @@ export function Settings() {
             database next to the backend.
           </p>
           <div className="card" style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div>
+              <p style={{ fontWeight: 700, fontSize: 13.5 }}>Reset data (keep keys)</p>
+              <p style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 10 }}>
+                Choose exactly what to delete. Provider keys and the default model are always kept.
+                These are independent — clearing experts never breaks past sessions, which keep their own copy.
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {Object.keys(PART_LABELS).map((k) => (
+                  <label key={k} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={parts[k]} style={{ marginTop: 3, flex: 'none' }}
+                      onChange={(e) => setParts((p) => ({ ...p, [k]: e.target.checked }))} />
+                    <span>
+                      <span style={{ fontWeight: 600, fontSize: 13 }}>{PART_LABELS[k].title}</span>
+                      <span style={{ display: 'block', fontSize: 11.5, color: 'var(--ink-3)' }}>{PART_LABELS[k].note}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
+                <button className="btn btn-ghost btn-sm" disabled={!anySelected} onClick={() => setConfirmReset('selective')}>
+                  Delete selected
+                </button>
+              </div>
+            </div>
+            <hr className="hr" />
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <div style={{ flex: 1 }}>
-                <p style={{ fontWeight: 700, fontSize: 13.5 }}>Reset data (keep keys)</p>
-                <p style={{ fontSize: 12, color: 'var(--ink-3)' }}>Delete all sessions, experts, and usage history; re-seed the starter experts. Keys and default model stay.</p>
+                <p style={{ fontWeight: 700, fontSize: 13.5 }}>Restore starter experts</p>
+                <p style={{ fontSize: 12, color: 'var(--ink-3)' }}>Re-add the built-in starter personas. Skipped if your library already has experts.</p>
               </div>
-              <button className="btn btn-ghost btn-sm" onClick={() => setConfirmReset('data')}>Reset</button>
+              <button className="btn btn-subtle btn-sm" disabled={busy} onClick={restoreStarters}>{busy ? 'Restoring…' : 'Restore'}</button>
             </div>
             <hr className="hr" />
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -101,16 +142,16 @@ export function Settings() {
 
       {confirmReset ? (
         <Confirm
-          title={confirmReset === 'data' ? 'Reset all data?' : 'Clear everything?'}
-          body={confirmReset === 'data'
-            ? 'All sessions, experts, and usage history will be permanently deleted. Provider keys are kept.'
-            : 'All keys, sessions, experts, and usage will be cleared. You’ll land on first-run onboarding.'}
-          confirmLabel={confirmReset === 'data' ? 'Reset' : 'Clear everything'}
+          title={confirmReset === 'all' ? 'Clear everything?' : 'Delete selected data?'}
+          body={confirmReset === 'all'
+            ? 'All keys, sessions, experts, and usage will be cleared. You’ll land on first-run onboarding.'
+            : `The following will be permanently deleted: ${selectedSummary}. Provider keys are kept.${parts.experts ? ' Frozen sessions keep their own copy of any cleared experts.' : ''}`}
+          confirmLabel={confirmReset === 'all' ? 'Clear everything' : 'Delete'}
           onConfirm={async () => {
             const all = confirmReset === 'all';
-            await API.clearData(!all);
+            await API.clearData(!all, all ? undefined : parts);
             if (all) navigate('/onboarding');
-            else { await API.seedStarters(); navigate('/home'); }
+            else { setParts({ sessions: false, experts: false, analytics: false }); setConfirmReset(null); }
           }}
           onClose={() => setConfirmReset(null)} />
       ) : null}

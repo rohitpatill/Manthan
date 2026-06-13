@@ -78,7 +78,9 @@ ExpertsCouncil/                 ← repo root
 backend/
 ├── main.py               FastAPI app: router mounting, startup (init_db, .env key import,
 │                         seed starter experts), admin endpoints (/api/health,
-│                         /api/seed-starters, /api/admin/clear-data).
+│                         /api/seed-starters, /api/admin/clear-data — selective wipe via
+│                         independent flags sessions/experts/analytics, +keep_keys=false for
+│                         full "start from scratch"; no auto-reseed).
 ├── config.py             Paths, MOCK_MODE flag, token budgets, SYNTHESIS_MAX_WORDS_DEFAULT
 │                         (700, the fallback for the user-editable global synthesis word cap),
 │                         expert min/max, and .env loader → ENV_API_KEYS (placeholder
@@ -192,7 +194,9 @@ frontend/
         │                   FrozenView (full archived record + cost breakdown), SessionCostTicker.
         ├── analytics.jsx   Premium dashboard: filters, KPI cards, SVG spend chart, donut,
         │                   call-type bars, sortable tables.
-        └── settings.jsx    Provider keys, default model, reset/clear-data controls.
+        └── settings.jsx    Provider keys, default model, synthesis word limit, selective
+                            clear-data (Sessions/Experts/Analytics checkboxes), Restore
+                            starter experts, start-from-scratch.
 ```
 
 ### Key frontend conventions
