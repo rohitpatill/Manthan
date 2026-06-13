@@ -234,19 +234,42 @@ def test_frozen_session_is_readonly(session_id):
         assert r.status_code == 409
 
 
-def test_expert_failure_isolation_and_retry(expert_ids):
-    """One expert with a failing key must not block others; retry must recover it."""
-    import db as dbmod
+def test_expert_model_propagates_on_dispatch(expert_ids):
+    """Editing an expert's model after a session is created should take effect at dispatch."""
     r = client.post("/api/sessions", json={
-        "title": "Failure Test", "expert_ids": expert_ids[:2],
+        "expert_ids": expert_ids[:1], "round2_enabled": False, "synthesis_enabled": False})
+    sid = r.json()["session"]["id"]
+    se = r.json()["experts"][0]
+    assert se["model_id"] != "gpt-5-nano"
+    # change the source expert's model in the library
+    client.put(f"/api/experts/{expert_ids[0]}", json={
+        "name": se["name"], "title": se["title"], "persona": "Updated persona for propagation test.",
+        "provider_type": "openai", "model_id": "gpt-5-nano", "avatar_url": ""})
+    with client.stream("POST", f"/api/sessions/{sid}/dispatch", json={"brief": "test brief"}) as resp:
+        collect_sse(resp)
+    detail = client.get(f"/api/sessions/{sid}").json()
+    assert detail["experts"][0]["model_id"] == "gpt-5-nano"
+    assert "propagation test" in detail["experts"][0]["persona"]
+
+
+def test_expert_failure_isolation_and_retry():
+    """One expert on an unconfigured provider must fail without blocking others; retry recovers it."""
+    # all three providers valid while we build experts + session
+    client.post("/api/providers", json={"provider_type": "openai", "api_key": "good-openai"})
+    client.post("/api/providers", json={"provider_type": "gemini", "api_key": "good-gemini"})
+    good = client.post("/api/experts", json={
+        "name": "Works", "title": "OK", "persona": "Reliable expert.",
+        "provider_type": "openai", "model_id": "gpt-4o-mini"}).json()["expert"]
+    bad = client.post("/api/experts", json={
+        "name": "Breaks", "title": "Fail", "persona": "Expert with no key.",
+        "provider_type": "gemini", "model_id": "gemini-2.5-flash"}).json()["expert"]
+    r = client.post("/api/sessions", json={
+        "title": "Failure Test", "expert_ids": [good["id"], bad["id"]],
         "round2_enabled": False, "synthesis_enabled": True})
     sid = r.json()["session"]["id"]
-    failing_se = r.json()["experts"][0]["id"]
-    # Sabotage one expert's provider key (mock fails on 'fail-key')
-    with dbmod.get_conn() as conn:
-        conn.execute("UPDATE session_experts SET provider_type = 'openai' WHERE id != ? AND session_id = ?",
-                     (failing_se, sid))
-        conn.execute("UPDATE session_experts SET provider_type = 'gemini' WHERE id = ?", (failing_se,))
+    # NOW remove gemini's key → the gemini expert will fail at dispatch
+    client.delete("/api/providers/gemini")
+    failing_se = next(e["id"] for e in r.json()["experts"] if e["provider_type"] == "gemini")
     with client.stream("POST", f"/api/sessions/{sid}/dispatch", json={"brief": "test brief"}) as resp:
         events = collect_sse(resp)
     types = [e["type"] for e in events]
@@ -303,6 +326,8 @@ def test_avatar_upload():
 
 
 def test_delete_provider_flags_experts():
+    # ensure gemini exists first so this test is order-independent
+    client.post("/api/providers", json={"provider_type": "gemini", "api_key": "good-gemini"})
     r = client.delete("/api/providers/gemini")
     assert r.status_code == 200
     assert client.put("/api/providers/default-model",

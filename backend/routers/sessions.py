@@ -39,9 +39,26 @@ class RetryIn(BaseModel):
     round: int = Field(ge=1, le=2)
 
 
+def _live_overlay_experts(conn, session: dict, experts: list[dict]) -> list[dict]:
+    """For a session that hasn't run round 1 yet, show each participant's CURRENT
+    model/persona from the Experts library (source of truth). After round 1 the
+    stored snapshot is authoritative (historical accuracy)."""
+    if session["round1_done"]:
+        return experts
+    for e in experts:
+        if not e.get("expert_id"):
+            continue
+        live = db.row_to_dict(conn.execute(
+            "SELECT name, title, persona, avatar_url, provider_type, model_id FROM experts WHERE id = ?",
+            (e["expert_id"],)).fetchone())
+        if live:
+            e.update(live)
+    return experts
+
+
 def _session_detail(conn, session_id: int) -> dict:
     session = orchestrator.load_session(conn, session_id)
-    experts = orchestrator.load_session_experts(conn, session_id)
+    experts = _live_overlay_experts(conn, session, orchestrator.load_session_experts(conn, session_id))
     intake = db.rows_to_dicts(conn.execute(
         "SELECT id, role, content, created_at FROM intake_messages WHERE session_id = ? ORDER BY id",
         (session_id,)).fetchall())
@@ -205,6 +222,27 @@ async def dispatch(session_id: int, payload: DispatchIn):
         orchestrator.assert_not_frozen(session)
         if session["round1_done"]:
             raise HTTPException(status_code=409, detail="Round 1 already ran for this session.")
+        # Source of truth = the Experts library. Re-read each participant from its
+        # live expert (model/persona/name/title/avatar) so edits made after the
+        # session was created take effect. Skip if the expert was deleted, or if its
+        # provider no longer has a valid key (keep the prior snapshot in that case).
+        valid_providers = {r["provider_type"] for r in conn.execute(
+            "SELECT provider_type FROM provider_configs WHERE is_valid = 1").fetchall()}
+        participants = db.rows_to_dicts(conn.execute(
+            "SELECT id, expert_id FROM session_experts WHERE session_id = ?", (session_id,)).fetchall())
+        for p in participants:
+            if not p["expert_id"]:
+                continue
+            ex = db.row_to_dict(conn.execute("SELECT * FROM experts WHERE id = ?", (p["expert_id"],)).fetchone())
+            if not ex or ex["provider_type"] not in valid_providers:
+                continue
+            conn.execute(
+                """UPDATE session_experts
+                   SET name = ?, title = ?, persona = ?, avatar_url = ?, provider_type = ?, model_id = ?
+                   WHERE id = ?""",
+                (ex["name"], ex["title"], ex["persona"], ex["avatar_url"],
+                 ex["provider_type"], ex["model_id"], p["id"]),
+            )
         conn.execute(
             "UPDATE sessions SET compiled_brief = ?, pending_brief = '', status = 'in_progress', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             (payload.brief.strip(), session_id))
