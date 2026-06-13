@@ -63,10 +63,11 @@ synthesis is the nectar.
 You stay in control the whole way. Nothing expensive happens by accident, and nothing is hidden.
 
 **1. Build your council.**
-Create experts once, reuse them forever. Each expert is a persona — *"Dr. Meera Iyer,
-Neurologist"*, *"a ruthless growth marketer"* — with a detailed character and an assigned AI
-model. Write them yourself, or describe what you need and let the built-in guide, **Manthan AI**,
-draft the persona for you.
+Start in seconds with a **curated library of 60+ ready-made experts across 20+ domains** —
+science, engineering, law, medicine, economics, philosophy, strategy, and more — each a richly
+written persona you can import with one click and assign to any model. Or make your own: write
+the persona yourself, or describe what you need and let the built-in guide, **Manthan AI**, draft
+it for you. Create experts once, organize them by domain, and reuse them forever.
 
 **2. Convene a session and brief it.**
 Pick the experts for this problem (or let Manthan AI suggest a panel). Then just *talk* to
@@ -80,8 +81,10 @@ streaming in real time, each on its own model. You see every answer, with a one-
 top so you can scan the whole panel at a glance.
 
 **4. Get the synthesis.**
-Manthan AI reads the entire panel and produces one combined verdict: who said what, where they
-agree, where they conflict and *why*, and a clear final recommendation.
+Manthan AI reads the entire panel and gives you **one clear, decisive answer to your problem** —
+not a recap of who said what. It thinks across the experts, surfaces the genuine tensions only
+where they change what you should do, and integrates the best of every mind into a single
+recommendation written for you, in one voice.
 
 **5. (Optional) Run the debate — Round 2.**
 Turn it on and each expert is shown the others' answers *and* the first synthesis, then revises
