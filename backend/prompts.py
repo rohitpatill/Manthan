@@ -81,26 +81,45 @@ Hard limit: keep your entire answer under 450 words. Stay fully in character.
 """.strip()
 
 
-def round2_user_message(brief: str, own_answer: str, peers: list[dict]) -> str:
+def round2_user_message(brief: str, own_answer: str, peers: list[dict], synthesis: str = "") -> str:
     peer_blocks = "\n\n".join(
-        f"--- {p['name']} ({p['title']}) said ---\n{p['content']}" for p in peers
-    )
-    return f"""
-You are in round 2 of the council deliberation.
+        f"### {i}. {p['name']} — {p['title']}\n{p['content']}"
+        for i, p in enumerate(peers, start=1)
+    ) or "(no other experts responded in round 1)"
 
-The original brief was:
+    synthesis_section = (
+        f"""
+## 5. Manthan's round-1 synthesis
+After round 1, Manthan AI combined the whole panel into one synthesis. This is provided as
+context only — you are free to disagree with it:
+
+{synthesis}
+"""
+        if synthesis.strip() else ""
+    )
+
+    return f"""
+## 1. Context — what is happening
+This is the Manthan council: a panel of independent expert advisors deliberating one problem.
+You already gave an independent answer in round 1. This is round 2 — the debate round — where
+you see what the rest of the panel said and decide whether to hold your position, refine it,
+or change your mind. Stay fully in character as your persona.
+
+## 2. The original brief
 {brief}
 
-In round 1 you said:
+## 3. Your own round-1 answer
 {own_answer}
 
-Here is what every other expert on the panel said:
-
+## 4. What the other experts said in round 1
 {peer_blocks}
+{synthesis_section}
+## {6 if synthesis.strip() else 5}. Your task now
+Write your round-2 position. Engage directly with the other experts — name the strongest
+point made against your view and respond to it. Revise, defend, or update your opinion
+honestly; do not change your mind just to agree, and do not dig in just to be consistent.
 
-Now write your round-2 position: revise, defend, or update your opinion in light of the
-other experts' arguments. Explicitly address the strongest point made against your view.
-Same format as before — first line "STANCE: ...", then reasoning, under 450 words.
+Same format as before — first line "STANCE: <one sentence>", then your reasoning. Under 450 words.
 """.strip()
 
 

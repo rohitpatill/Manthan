@@ -91,7 +91,8 @@ def _save_response(session_id: int, session_expert_id: int | None, kind: str, ro
 
 
 async def _run_one_expert(session: dict, expert: dict, round_number: int,
-                          round1_answers: dict[int, dict], queue: asyncio.Queue) -> None:
+                          round1_answers: dict[int, dict], queue: asyncio.Queue,
+                          round1_synthesis: str = "") -> None:
     """Run a single expert call, pushing SSE events to the shared queue and persisting the result."""
     expert_id = expert["id"]
     purpose = f"expert_r{round_number}"
@@ -107,6 +108,7 @@ async def _run_one_expert(session: dict, expert: dict, round_number: int,
             peers = [a for eid, a in round1_answers.items() if eid != expert_id]
             messages = [{"role": "user", "content": prompts.round2_user_message(
                 session["compiled_brief"], own["content"] if own else "(you gave no round-1 answer)", peers,
+                synthesis=round1_synthesis,
             )}]
         provider = get_provider(expert["provider_type"])
         full_text: list[str] = []
@@ -152,6 +154,19 @@ def _mark_round_done(conn, session_id: int, round_number: int) -> None:
     conn.execute(f"UPDATE sessions SET {column} = 1 WHERE id = ?", (session_id,))
 
 
+def _round1_synthesis(conn, session_id: int) -> str:
+    """The round-1 synthesis text (stance + body), or '' if none was produced."""
+    row = db.row_to_dict(conn.execute(
+        """SELECT stance, content FROM responses
+           WHERE session_id = ? AND kind = 'synthesis' AND round = 1 AND status = 'done'""",
+        (session_id,)).fetchone())
+    if not row:
+        return ""
+    stance = (row["stance"] or "").strip()
+    body = (row["content"] or "").strip()
+    return (f"STANCE: {stance}\n\n{body}" if stance else body).strip()
+
+
 def validate_round(session_id: int, round_number: int,
                    only_expert_id: int | None = None) -> dict:
     """Validate preconditions BEFORE streaming starts. Raises HTTPException with
@@ -168,6 +183,7 @@ def validate_round(session_id: int, round_number: int,
                 raise HTTPException(status_code=400, detail="Round 1 has not completed yet.")
         experts = load_session_experts(conn, session_id)
         round1_answers = _round1_answers(conn, session_id) if round_number == 2 else {}
+        round1_synthesis = _round1_synthesis(conn, session_id) if round_number == 2 else ""
         if only_expert_id is not None:
             experts = [e for e in experts if e["id"] == only_expert_id]
             if not experts:
@@ -181,6 +197,7 @@ def validate_round(session_id: int, round_number: int,
                 (session_id, round_number)).fetchall()}
             experts = [e for e in experts if e["id"] not in done_ids]
     return {"session": session, "experts": experts, "round1_answers": round1_answers,
+            "round1_synthesis": round1_synthesis,
             "round_number": round_number, "only_expert_id": only_expert_id}
 
 
@@ -189,12 +206,13 @@ async def run_round(ctx: dict) -> AsyncIterator[str]:
     session = ctx["session"]
     experts = ctx["experts"]
     round1_answers = ctx["round1_answers"]
+    round1_synthesis = ctx.get("round1_synthesis", "")
     round_number = ctx["round_number"]
     only_expert_id = ctx["only_expert_id"]
     session_id = session["id"]
 
     queue: asyncio.Queue = asyncio.Queue()
-    tasks = [asyncio.create_task(_run_one_expert(session, expert, round_number, round1_answers, queue))
+    tasks = [asyncio.create_task(_run_one_expert(session, expert, round_number, round1_answers, queue, round1_synthesis))
              for expert in experts]
 
     pending = len(tasks)

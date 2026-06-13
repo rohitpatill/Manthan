@@ -234,6 +234,26 @@ def test_frozen_session_is_readonly(session_id):
         assert r.status_code == 409
 
 
+def test_round2_prompt_includes_synthesis_and_structure():
+    """Round-2 prompt must carry platform context, brief, own answer, peers, and the R1 synthesis."""
+    import prompts
+    peers = [
+        {"name": "Alice", "title": "Economist", "content": "Peer A reasoning."},
+        {"name": "Bob", "title": "Ethicist", "content": "Peer B reasoning."},
+    ]
+    msg = prompts.round2_user_message(
+        brief="Should we do X?", own_answer="STANCE: yes\nMy round 1 view.",
+        peers=peers, synthesis="STANCE: mixed\nThe panel was split.")
+    assert "round 2" in msg.lower() and "Manthan council" in msg
+    assert "Should we do X?" in msg
+    assert "My round 1 view." in msg
+    assert "Alice" in msg and "Bob" in msg and "Peer A reasoning." in msg
+    assert "round-1 synthesis" in msg and "The panel was split." in msg
+    # without synthesis, that section is omitted
+    msg2 = prompts.round2_user_message("b", "o", peers, synthesis="")
+    assert "round-1 synthesis" not in msg2
+
+
 def test_expert_model_propagates_on_dispatch(expert_ids):
     """Editing an expert's model after a session is created should take effect at dispatch."""
     r = client.post("/api/sessions", json={
