@@ -342,6 +342,9 @@ export const API = {
     state.keys[provider] = { masked: '…', status: 'validating' }; notify();
     try {
       await http('POST', '/api/providers', { provider_type: provider, api_key: rawKey });
+      // clear the transient 'validating' marker so loadProviders' preserve-loop
+      // doesn't carry it over the fresh 'valid' status returned by the backend
+      delete state.keys[provider];
       await loadProviders(); await loadExperts(); notify();
       return { valid: true };
     } catch (e) {
