@@ -204,7 +204,8 @@ function BriefApproval({ ses }) {
       </p>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: 22, alignItems: 'start' }}>
         <textarea className="textarea card" style={{ minHeight: 420, padding: 22, fontSize: 13.5, lineHeight: 1.7, borderRadius: 'var(--r-lg)' }}
-          value={brief} onChange={(e) => setBrief(e.target.value)} />
+          value={brief} onChange={(e) => setBrief(e.target.value)}
+          onBlur={() => API.saveBrief(ses.id, brief)} />
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, position: 'sticky', top: 32 }}>
           <div className="card" style={{ padding: 18 }}>
             <h4 style={{ fontSize: 13, marginBottom: 10 }}>The panel</h4>

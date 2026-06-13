@@ -141,7 +141,8 @@ function normalizeDetail(payload, prev) {
     rounds, syntheses,
     usageTotals: payload.usage_totals, usageLog: payload.usage_log || [],
     createdAt: parseTs(s.created_at), frozenAt: s.status === 'frozen' ? parseTs(s.updated_at) : null,
-    pendingBrief: prev ? prev.pendingBrief : null,
+    // pending brief is now persisted on the backend → survives refresh
+    pendingBrief: s.pending_brief || (prev ? prev.pendingBrief : null) || null,
     raw: s,
   };
   d.status = deriveStatus(d);
@@ -441,7 +442,14 @@ export const API = {
     }
   },
   editBrief(id, brief) { mutateDetail(id, (d) => { d.pendingBrief = brief; }); },
-  backToBriefing(id) { mutateDetail(id, (d) => { d.pendingBrief = null; }); },
+  // persist the edited brief (called on blur) so a refresh restores the edits
+  async saveBrief(id, brief) {
+    try { await http('PUT', `/api/sessions/${id}/pending-brief`, { brief }); } catch (e) {}
+  },
+  async backToBriefing(id) {
+    mutateDetail(id, (d) => { d.pendingBrief = null; });
+    try { await http('POST', `/api/sessions/${id}/back-to-briefing`); } catch (e) {}
+  },
   async dispatch(id, brief) {
     const d = state.details[id];
     mutateDetail(id, (det) => { det.brief = brief; det.pendingBrief = null; });

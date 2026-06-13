@@ -27,6 +27,10 @@ class DispatchIn(BaseModel):
     brief: str = Field(min_length=1)  # final user-approved brief text
 
 
+class PendingBriefIn(BaseModel):
+    brief: str = ""  # in-progress edit on the approval screen (may be empty)
+
+
 class RenameIn(BaseModel):
     title: str = Field(min_length=1)
 
@@ -159,10 +163,38 @@ async def intake_turn(session_id: int, payload: IntakeIn):
     with db.get_conn() as conn:
         conn.execute("INSERT INTO intake_messages (session_id, role, content) VALUES (?, 'assistant', ?)",
                      (session_id, assistant_message))
+        # persist the compiled brief so the approval screen survives a refresh
+        if ready and brief:
+            conn.execute("UPDATE sessions SET pending_brief = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                         (brief, session_id))
         llm.record_usage(conn, session_id=session_id, expert_name="Manthan AI",
                          provider_type=provider_type, model_id=model_id, purpose="intake", usage=usage)
     return {"status": "ok", "assistant_message": assistant_message,
             "ready_to_dispatch": ready and bool(brief), "compiled_brief": brief}
+
+
+@router.put("/{session_id}/pending-brief")
+async def update_pending_brief(session_id: int, payload: PendingBriefIn):
+    """Persist edits to the compiled brief while on the approval screen (saved on blur)."""
+    with db.get_conn() as conn:
+        session = orchestrator.load_session(conn, session_id)
+        orchestrator.assert_not_frozen(session)
+        if session["round1_done"]:
+            raise HTTPException(status_code=409, detail="The council has already been briefed.")
+        conn.execute("UPDATE sessions SET pending_brief = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                     (payload.brief, session_id))
+    return {"status": "ok"}
+
+
+@router.post("/{session_id}/back-to-briefing")
+async def back_to_briefing(session_id: int):
+    """Clear the pending brief so the session returns to the briefing chat."""
+    with db.get_conn() as conn:
+        session = orchestrator.load_session(conn, session_id)
+        orchestrator.assert_not_frozen(session)
+        conn.execute("UPDATE sessions SET pending_brief = '', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                     (session_id,))
+    return {"status": "ok"}
 
 
 @router.post("/{session_id}/dispatch")
@@ -174,7 +206,7 @@ async def dispatch(session_id: int, payload: DispatchIn):
         if session["round1_done"]:
             raise HTTPException(status_code=409, detail="Round 1 already ran for this session.")
         conn.execute(
-            "UPDATE sessions SET compiled_brief = ?, status = 'in_progress', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            "UPDATE sessions SET compiled_brief = ?, pending_brief = '', status = 'in_progress', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             (payload.brief.strip(), session_id))
     ctx = orchestrator.validate_round(session_id, 1)
     return StreamingResponse(orchestrator.run_round(ctx),

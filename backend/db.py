@@ -67,6 +67,7 @@ def init_db() -> None:
                 status TEXT NOT NULL DEFAULT 'briefing',
                 round2_enabled INTEGER NOT NULL DEFAULT 0,
                 synthesis_enabled INTEGER NOT NULL DEFAULT 1,
+                pending_brief TEXT NOT NULL DEFAULT '',
                 compiled_brief TEXT NOT NULL DEFAULT '',
                 round1_done INTEGER NOT NULL DEFAULT 0,
                 round2_done INTEGER NOT NULL DEFAULT 0,
@@ -129,6 +130,9 @@ def init_db() -> None:
         provider_columns = {row["name"] for row in conn.execute("PRAGMA table_info(provider_configs)").fetchall()}
         if "masked_key" not in provider_columns:
             conn.execute("ALTER TABLE provider_configs ADD COLUMN masked_key TEXT NOT NULL DEFAULT ''")
+        session_columns = {row["name"] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()}
+        if "pending_brief" not in session_columns:
+            conn.execute("ALTER TABLE sessions ADD COLUMN pending_brief TEXT NOT NULL DEFAULT ''")
 
 
 def mask_key(key: str) -> str:
