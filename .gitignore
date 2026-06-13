@@ -53,3 +53,9 @@ bash.exe.stackdump
 # --- Claude / agent local config (machine-specific) ---
 .claude/
 .mcp.json
+
+# --- Local-only docs (contains credentials — never push) ---
+docs/
+
+# --- Internal build brief (kept local, not part of the repo) ---
+FRONTEND_PROMPT.md
