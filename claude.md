@@ -5,6 +5,11 @@
 > in the codebase. It covers the idea, architecture, every file's responsibility, the data
 > model, the request/data-flow for every feature, the streaming protocol, and the conventions.
 > Keep it updated when you change structure, endpoints, the DB schema, or core logic.
+>
+> **Living document — keep it current.** This file must stay a complete, accurate picture of
+> the project throughout development. Whenever a change is confirmed working by the person
+> directing the work, update every section it touches (files, endpoints, schema, data flow,
+> conventions) in the same pass — do not let the blueprint drift from the code. See §11.9.
 
 ---
 
@@ -74,13 +79,19 @@ backend/
 ├── main.py               FastAPI app: router mounting, startup (init_db, .env key import,
 │                         seed starter experts), admin endpoints (/api/health,
 │                         /api/seed-starters, /api/admin/clear-data).
-├── config.py             Paths, MOCK_MODE flag, token budgets, expert min/max, and .env
-│                         loader → ENV_API_KEYS (placeholder "REPLACE-ME" keys are ignored).
+├── config.py             Paths, MOCK_MODE flag, token budgets, SYNTHESIS_MAX_WORDS_DEFAULT
+│                         (700, the fallback for the user-editable global synthesis word cap),
+│                         expert min/max, and .env loader → ENV_API_KEYS (placeholder
+│                         "REPLACE-ME" keys are ignored).
 ├── db.py                 SQLite: connection ctx manager, init_db() schema + lightweight
 │                         migrations, DPAPI/base64 secret encryption, mask_key(), helpers
 │                         (row_to_dict, rows_to_dicts, get/set_setting, dumps/loads).
 ├── prompts.py            All system prompts + user-message builders: INTAKE, BUILDER, SUGGEST,
 │                         expert_system_prompt(), round2_user_message(), synthesis prompts.
+│                         Word limits are PARAMETERS: expert_system_prompt(...,max_words) and
+│                         round2_user_message(...,max_words) take the per-expert cap;
+│                         synthesis_system_prompt(max_words) takes the global synthesis cap.
+│                         BUILDER prompt also asks for a suggested_max_words (50–500, default 300).
 ├── requirements.txt      fastapi, uvicorn[standard], httpx, pydantic, python-multipart, pytest
 ├── .env                  (gitignored) OPENAI_API_KEY / GEMINI_API_KEY / ANTHROPIC_API_KEY
 ├── manthan.db            (gitignored) the live SQLite database (created on first run)
@@ -110,8 +121,9 @@ backend/
 │   └── session_logger.py Per-session .md + .jsonl logging of every LLM call (full prompts).
 │
 ├── routers/
-│   ├── providers.py      /api/providers : list (+catalog+default_model), save+validate key,
-│   │                     delete key, set default model.
+│   ├── providers.py      /api/providers : list (+catalog+default_model+synthesis_max_words),
+│   │                     save+validate key, delete key, set default model, set app-settings
+│   │                     (PUT /app-settings → global synthesis_max_words).
 │   ├── experts.py        /api/experts : CRUD, duplicate, builder/chat (Manthan AI persona
 │   │                     designer), suggest (panel suggestion).
 │   ├── sessions.py       /api/sessions : create, list, detail, rename, delete, intake turn,
@@ -199,7 +211,8 @@ frontend/
 ## 5. Data Model (SQLite — defined in `backend/db.py :: init_db`)
 
 ```
-settings(key PK, value)                         -- e.g. default_provider_type, default_model_id
+settings(key PK, value)                         -- e.g. default_provider_type, default_model_id,
+                                                --      synthesis_max_words (global synthesis cap)
 
 provider_configs(
   id, provider_type UNIQUE, display_name,
@@ -209,7 +222,9 @@ provider_configs(
 
 experts(                                          -- the reusable persona library (source of truth)
   id, name, title, persona, avatar_url,
-  provider_type, model_id, is_starter,
+  provider_type, model_id,
+  max_words,                                      -- per-expert answer word cap (default 300, range 50–500)
+  is_starter,
   created_at, updated_at)
 
 sessions(
@@ -223,8 +238,9 @@ sessions(
 session_experts(                                  -- snapshot of experts chosen for a session
   id, session_id→sessions, expert_id→experts (nullable if source deleted),
   name, title, persona, avatar_url,
-  provider_type, model_id, sort_order)
+  provider_type, model_id, max_words, sort_order)
   -- Re-synced from the live expert at DISPATCH while not-yet-run; frozen after.
+  -- max_words is snapshotted/re-synced alongside model & persona.
 
 intake_messages(id, session_id→sessions, role, content, created_at)  -- the briefing chat
 
@@ -241,8 +257,9 @@ usage_log(                                        -- one row per LLM call (power
 ```
 
 `init_db()` also performs **idempotent migrations** (ALTER TABLE ADD COLUMN guarded by a
-PRAGMA check) for columns added over time (masked_key, pending_brief, etc.). Adding a new
-column = add it to the CREATE TABLE *and* add a guarded ALTER for existing DBs.
+PRAGMA check) for columns added over time (masked_key, pending_brief, experts.max_words,
+session_experts.max_words, etc.). Adding a new column = add it to the CREATE TABLE *and* add a
+guarded ALTER for existing DBs.
 
 ---
 
@@ -279,7 +296,10 @@ drive the live panel and the resume/retry banners.
 - Manual: `experts.jsx` ExpertEditor → `POST/PUT /api/experts`. Avatar via
   `POST /api/uploads/avatar` (file) or a pasted public URL.
 - Via Manthan AI: BuilderChat → `POST /api/experts/builder/chat {messages}` → returns a drafted
-  `{name, title, persona, suggested_provider_type, suggested_model_id}` for review, then saved.
+  `{name, title, persona, suggested_provider_type, suggested_model_id, suggested_max_words}` for
+  review, then saved. `suggested_max_words` defaults to 300 unless the user asked for shorter/longer.
+- Each expert carries a `max_words` cap (default 300, range 50–500), editable in the Expert editor;
+  it is injected into that expert's own Round 1 & Round 2 prompts only (never mixed across experts).
 - Suggestion (in NewSession): `POST /api/experts/suggest {problem}` → relevant expert ids.
 
 ### 7.3 The council session (the heart) — request/data flow
@@ -292,12 +312,13 @@ drive the live panel and the resume/retry banners.
    `PUT /api/sessions/{id}/pending-brief`. "Back to briefing" → `POST /back-to-briefing`.
 4. **Dispatch (Round 1):** `POST /api/sessions/{id}/dispatch {brief}` →
    - stores `compiled_brief`, clears `pending_brief`;
-   - **re-reads each not-yet-run session_expert from its live source expert** (model/persona) —
-     unless the expert was deleted or its provider key is now invalid;
-   - streams Round 1 as **SSE** (see §7.4). Each expert: persona system prompt + the brief only
-     (blind). Answers stream in parallel.
+   - **re-reads each not-yet-run session_expert from its live source expert** (model/persona/
+     max_words) — unless the expert was deleted or its provider key is now invalid;
+   - streams Round 1 as **SSE** (see §7.4). Each expert: persona system prompt (with its own
+     `max_words` cap) + the brief only (blind). Answers stream in parallel.
 5. **Synthesis (if enabled):** `POST /api/sessions/{id}/synthesize?round=1` (SSE). Manthan AI
-   gets the brief + all done answers (+ notes any failed/missing experts).
+   gets the brief + all done answers (+ notes any failed/missing experts). Its length obeys the
+   global `synthesis_max_words` setting (default 700), read from the DB at synthesis time.
 6. **Round 2 (if enabled):** `POST /api/sessions/{id}/round2` (SSE). Each expert receives a
    structured prompt (built by `prompts.round2_user_message`): platform context → brief →
    their own R1 answer → every peer's R1 answer (labeled) → **the R1 synthesis** → revise/defend.
@@ -395,6 +416,7 @@ npm run build             # production bundle to dist/
 | Add/adjust a model or pricing | `backend/providers/registry.py` (frontend reads it via `/api/providers`). |
 | Add a new LLM provider | New `providers/<x>_provider.py` extending `BaseProvider` (impl `validate_api_key`, `generate_json`, `stream_text`); register in `factory.py`; add to `PROVIDER_CATALOG`; add display meta in `frontend/src/lib/catalog.js`. |
 | Change an LLM prompt | `backend/prompts.py` (intake, builder, suggest, expert system prompt, round-2 context, synthesis). Verify via the session log. |
+| Adjust answer word limits | Per-expert: `experts.max_words` (UI in `experts.jsx` ExpertEditor; flows store → `prompts.expert_system_prompt`/`round2_user_message`). Global synthesis: `synthesis_max_words` setting (UI in `settings.jsx`; `PUT /api/providers/app-settings`; read in `orchestrator._synthesis_max_words` → `prompts.synthesis_system_prompt`). |
 | Add a DB column | `db.py :: init_db` — add to CREATE TABLE **and** a guarded `ALTER TABLE ADD COLUMN`. |
 | New API endpoint | Add to the relevant `routers/*.py`; mount is automatic if the router is already included in `main.py`. |
 | New screen / route | Add a screen in `frontend/src/screens/`, wire a hash route in `App.jsx`, add a nav item in `shell.jsx`. |
@@ -416,3 +438,7 @@ npm run build             # production bundle to dist/
 6. **Every LLM call is logged** (full prompt/output) and **metered** (usage_log → analytics).
 7. SSE event contract (§7.4) is shared by backend orchestrator and frontend store — change both.
 8. Desktop UI is the default; responsiveness is additive via media queries only.
+9. **This blueprint stays in sync with the code.** When a change is confirmed working by the
+   person directing the work, update every section of this file it affects (file
+   responsibilities, endpoints, §5 schema, §7 data flow, §10 how-to, conventions) in the same
+   pass. The blueprint must never lag behind what the code actually does.
