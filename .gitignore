@@ -1,0 +1,55 @@
+# ============================================================
+# Manthan — root .gitignore
+# ============================================================
+
+# --- Secrets — NEVER commit ---
+.env
+.env.*
+*.key
+*.pem
+secrets.json
+
+# --- Databases (local, per-machine data) ---
+*.db
+*.sqlite
+*.sqlite3
+
+# --- User uploads (local files) ---
+backend/uploads/avatars/*
+!backend/uploads/avatars/.gitkeep
+
+# --- Test artifacts ---
+backend/tests/tmp/
+.pytest_cache/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+env/
+ENV/
+
+# --- Node / frontend ---
+node_modules/
+dist/
+.vite/
+*.local
+
+# --- Logs ---
+logs/
+*.log
+
+# --- OS / editor cruft ---
+.DS_Store
+Thumbs.db
+bash.exe.stackdump
+*.stackdump
+.idea/
+.vscode/
+
+# --- Claude / agent local config (machine-specific) ---
+.claude/
+.mcp.json
