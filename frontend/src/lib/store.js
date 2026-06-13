@@ -47,11 +47,13 @@ async function http(method, url, body) {
 }
 
 // POST that returns an SSE stream; calls onEvent(parsedJson) per `data:` line.
-async function sseStream(url, body, onEvent) {
+// `signal` (optional) lets the caller abort the stream mid-flight (Stop button).
+async function sseStream(url, body, onEvent, signal) {
   const res = await fetch(url, {
     method: 'POST',
     headers: body !== undefined ? { 'Content-Type': 'application/json' } : {},
     body: body !== undefined ? JSON.stringify(body) : undefined,
+    signal,
   });
   if (!res.ok) {
     let detail = res.statusText;
@@ -214,6 +216,7 @@ async function init() {
 
 // ---------------- live run orchestration ----------------
 const activeRuns = new Set();
+const runControllers = {}; // sessionId -> AbortController for the live run
 const isRunning = (id) => activeRuns.has(String(id));
 
 function mutateDetail(id, fn) {
@@ -280,7 +283,7 @@ function setOverride(id, status) {
   mutateDetail(id, (d) => { d._statusOverride = status || null; });
 }
 
-async function runStage(id, kind, round) {
+async function runStage(id, kind, round, signal) {
   const handler = makeEventHandler(id);
   const d = state.details[id];
   if (kind === 'round') {
@@ -291,11 +294,11 @@ async function runStage(id, kind, round) {
         if (!cur || cur.status !== 'done') det.rounds[round][e.id] = { status: 'queued', stance: null, text: '' };
       });
     });
-    if (round === 1) await sseStream(`/api/sessions/${id}/dispatch`, { brief: d.brief }, handler);
-    else await sseStream(`/api/sessions/${id}/round2`, undefined, handler);
+    if (round === 1) await sseStream(`/api/sessions/${id}/dispatch`, { brief: d.brief }, handler, signal);
+    else await sseStream(`/api/sessions/${id}/round2`, undefined, handler, signal);
   } else {
     setOverride(id, 'synthesis' + round);
-    await sseStream(`/api/sessions/${id}/synthesize?round=${round}`, undefined, handler);
+    await sseStream(`/api/sessions/${id}/synthesize?round=${round}`, undefined, handler, signal);
   }
   setOverride(id, null);
 }
@@ -304,31 +307,40 @@ async function runStage(id, kind, round) {
 async function runFlow(id, opts = {}) {
   const key = String(id);
   if (activeRuns.has(key)) return;
+  const controller = new AbortController();
+  runControllers[key] = controller;
+  const sig = controller.signal;
   activeRuns.add(key); notify();
   try {
     let d = state.details[id];
     if (!d.raw.round1_done) {
-      await runStage(id, 'round', 1);
+      await runStage(id, 'round', 1, sig);
       if (anyFailed(id, 1) && !opts.skipFailed) return 'partial';
     }
     d = state.details[id];
-    if (d.synthesis && !d.raw.synth1_done) await runStage(id, 'synthesis', 1);
+    if (d.synthesis && !d.raw.synth1_done) await runStage(id, 'synthesis', 1, sig);
     if (d.round2) {
       if (!d.raw.round2_done) {
-        await runStage(id, 'round', 2);
+        await runStage(id, 'round', 2, sig);
         if (anyFailed(id, 2) && !opts.skipFailed) return 'partial2';
       }
       d = state.details[id];
-      if (d.synthesis && !d.raw.synth2_done) await runStage(id, 'synthesis', 2);
+      if (d.synthesis && !d.raw.synth2_done) await runStage(id, 'synthesis', 2, sig);
     }
     await loadDetail(id);
     await loadSessions(); notify();
     return 'frozen';
   } catch (e) {
+    // user-initiated stop: not an error — just reload into a resumable state
+    if (e.name === 'AbortError' || sig.aborted) {
+      setOverride(id, null);
+      await loadDetail(id).catch(() => {});
+      return 'stopped';
+    }
     mutateDetail(id, (det) => { det.runError = e.message; });
     await loadDetail(id).catch(() => {});
     return 'error';
-  } finally { activeRuns.delete(key); notify(); }
+  } finally { activeRuns.delete(key); delete runControllers[key]; notify(); }
 }
 
 // ---------------- public API (actions) ----------------
@@ -469,6 +481,11 @@ export const API = {
     } finally { activeRuns.delete(key); notify(); }
   },
   anyFailed, isRunning,
+  // abort the live run; partial results are kept and the session stays resumable
+  stopRun(id) {
+    const c = runControllers[String(id)];
+    if (c) c.abort();
+  },
 
   sessionCost(id) {
     const d = state.details[id];

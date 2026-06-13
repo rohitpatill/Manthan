@@ -294,12 +294,30 @@ function RunBanners({ ses }) {
   return null;
 }
 
+// ---------- stop banner (shown while a run is live) ----------
+function StopBanner({ ses }) {
+  useStore();
+  if (!API.isRunning(ses.id)) return null;
+  return (
+    <div className="card fade-up" style={{ padding: '12px 18px', marginBottom: 20, borderColor: 'var(--primary-line)', background: 'var(--primary-tint)', display: 'flex', alignItems: 'center', gap: 12 }}>
+      <span className="churn" style={{ width: 20, height: 20 }}><i></i><i></i><i></i></span>
+      <p style={{ flex: 1, fontSize: 13, color: 'var(--ink-2)' }}>
+        <strong>The council is deliberating…</strong> Stop halts new calls and remaining rounds. Answers already completed are kept; you can resume later.
+      </p>
+      <button className="btn btn-danger btn-sm" style={{ background: 'var(--red-tint)' }} onClick={() => API.stopRun(ses.id)}>
+        <Icon name="x" size={13} /> Stop
+      </button>
+    </div>
+  );
+}
+
 // ---------- live panel ----------
 export function LivePanel({ ses }) {
   const activeRound = (ses.status === 'round2' || ses.status === 'round2-partial' || ses.status === 'synthesis2' || Object.keys(ses.rounds[2] || {}).length) ? 2 : 1;
   return (
     <div style={{ maxWidth: 1180, margin: '0 auto', padding: '24px 32px 64px' }}>
       <div style={{ marginBottom: 20 }}><PhaseStepper ses={ses} /></div>
+      <StopBanner ses={ses} />
       <RunBanners ses={ses} />
       <SummaryStrip ses={ses} round={activeRound} />
       <RoundSection ses={ses} round={1} />
