@@ -99,7 +99,10 @@ backend/
 │                         synthesis_system_prompt(max_words) takes the global synthesis cap.
 │                         BUILDER prompt also asks for a suggested_max_words (50–500, default 300)
 │                         and a suggested_domain (reuse an existing library domain if one fits,
-│                         else propose a concise new one).
+│                         else propose a concise new one). The synthesis prompt is written to speak
+│                         TO the user (not recap the panel): answer-first, decisive, and free to
+│                         choose whatever structure best fits the question — the only fixed format
+│                         rule is the "STANCE:" first line (see §7.3).
 ├── requirements.txt      fastapi, uvicorn[standard], httpx, pydantic, python-multipart, pytest
 ├── .env                  (gitignored) OPENAI_API_KEY / GEMINI_API_KEY / ANTHROPIC_API_KEY
 ├── manthan.db            (gitignored) the live SQLite database (created on first run)
@@ -343,8 +346,13 @@ drive the live panel and the resume/retry banners.
    - streams Round 1 as **SSE** (see §7.4). Each expert: persona system prompt (with its own
      `max_words` cap) + the brief only (blind). Answers stream in parallel.
 5. **Synthesis (if enabled):** `POST /api/sessions/{id}/synthesize?round=1` (SSE). Manthan AI
-   gets the brief + all done answers (+ notes any failed/missing experts). Its length obeys the
-   global `synthesis_max_words` setting (default 700), read from the DB at synthesis time.
+   gets the brief + all done answers (+ notes any failed/missing experts). The synthesis is
+   written **for the user, not about the panel** — it leads with the decisive answer, weaves in
+   only the cross-expert reasoning/conflict that changes what the user should do, and **chooses
+   whatever structure fits the question** (no fixed template; the only required format is the
+   `STANCE:` first line). It does NOT recap each expert (their full answers are already shown
+   above the synthesis). Its length obeys the global `synthesis_max_words` setting (default 700),
+   read from the DB at synthesis time.
 6. **Round 2 (if enabled):** `POST /api/sessions/{id}/round2` (SSE). Each expert receives a
    structured prompt (built by `prompts.round2_user_message`): platform context → brief →
    their own R1 answer → every peer's R1 answer (labeled) → **the R1 synthesis** → revise/defend.
