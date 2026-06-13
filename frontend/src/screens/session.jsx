@@ -4,7 +4,7 @@ import { API } from '../lib/store';
 import { Catalog } from '../lib/catalog';
 import {
   useStore, Icon, ExpertAvatar, EmptyState, Toggle, ManthanMark,
-  EditableTitle, SessionStatus, ChatBubble,
+  EditableTitle, SessionStatus, ChatBubble, ModelPicker, ModelChip, Modal, ModalHeader,
 } from '../components/ui';
 import { navigate, Page } from '../components/shell';
 import { expertNeedsReassignment } from './experts';
@@ -22,6 +22,8 @@ export function NewSession() {
   const [suggesting, setSuggesting] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState(null);
+  const [overrides, setOverrides] = useState({}); // expertId -> {provider, model}
+  const [modelFor, setModelFor] = useState(null); // expert object whose model popup is open
 
   const usable = state.experts.filter((e) => !expertNeedsReassignment(e));
   const blocked = state.experts.filter(expertNeedsReassignment);
@@ -44,7 +46,9 @@ export function NewSession() {
   const begin = async () => {
     setCreating(true); setError(null);
     try {
-      const id = await API.createSession({ expertIds: selected, round2, synthesis, title: title.trim() || null });
+      const modelOverrides = {};
+      selected.forEach((id) => { if (overrides[id]) modelOverrides[id] = overrides[id]; });
+      const id = await API.createSession({ expertIds: selected, round2, synthesis, title: title.trim() || null, modelOverrides });
       navigate('/session/' + id);
     } catch (e) { setError(e.message); setCreating(false); }
   };
@@ -75,26 +79,45 @@ export function NewSession() {
               {usable.map((e) => {
                 const on = selected.includes(e.id);
                 const sug = suggested && suggested.includes(e.id);
+                const ov = overrides[e.id];
+                const effModel = ov ? ov.model : e.model;
+                const effProvider = ov ? ov.provider : e.provider;
                 return (
-                  <button key={e.id} onClick={() => toggle(e.id)}
+                  <div key={e.id}
                     style={{
-                      display: 'flex', gap: 11, alignItems: 'center', textAlign: 'left', cursor: 'pointer',
-                      padding: '11px 13px', borderRadius: 11, fontFamily: 'inherit',
+                      display: 'flex', flexDirection: 'column', gap: 8,
+                      padding: '11px 13px', borderRadius: 11,
                       border: '1.5px solid ' + (on ? 'var(--primary)' : 'var(--line)'),
                       background: on ? 'var(--primary-tint)' : '#fff',
                       transition: 'border-color .12s, background .12s',
                     }}>
-                    <ExpertAvatar expert={e} size={34} />
-                    <span style={{ flex: 1, minWidth: 0 }}>
-                      <span style={{ display: 'block', fontWeight: 700, fontSize: 13 }} className="truncate">{e.name}</span>
-                      <span style={{ display: 'block', fontSize: 11.5, color: 'var(--ink-3)' }} className="truncate">{e.title}</span>
-                    </span>
-                    {sug ? <span className="badge badge-blue" title="Suggested by Manthan AI"><Icon name="spark" size={10} /></span> : null}
-                    <span style={{
-                      width: 18, height: 18, borderRadius: 6, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      border: '1.5px solid ' + (on ? 'var(--primary)' : '#C9D1DC'), background: on ? 'var(--primary)' : '#fff', color: '#fff',
-                    }}>{on ? <Icon name="check" size={11} /> : null}</span>
-                  </button>
+                    <button onClick={() => toggle(e.id)}
+                      style={{ display: 'flex', gap: 11, alignItems: 'center', textAlign: 'left', cursor: 'pointer',
+                               background: 'none', border: 0, padding: 0, fontFamily: 'inherit', width: '100%' }}>
+                      <ExpertAvatar expert={e} size={34} />
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ display: 'block', fontWeight: 700, fontSize: 13 }} className="truncate">{e.name}</span>
+                        <span style={{ display: 'block', fontSize: 11.5, color: 'var(--ink-3)' }} className="truncate">{e.title}</span>
+                      </span>
+                      {sug ? <span className="badge badge-blue" title="Suggested by Manthan AI"><Icon name="spark" size={10} /></span> : null}
+                      <span style={{
+                        width: 18, height: 18, borderRadius: 6, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        border: '1.5px solid ' + (on ? 'var(--primary)' : '#C9D1DC'), background: on ? 'var(--primary)' : '#fff', color: '#fff',
+                      }}>{on ? <Icon name="check" size={11} /> : null}</span>
+                    </button>
+                    {on ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingLeft: 45, flexWrap: 'wrap' }}>
+                        <span style={{ minWidth: 0, maxWidth: '100%', overflow: 'hidden' }}>
+                          <ModelChip provider={effProvider} model={effModel} />
+                        </span>
+                        {ov ? <span className="badge badge-blue" title="Model overridden for this session">this run</span> : null}
+                        <button className="btn btn-subtle btn-sm" style={{ marginLeft: 'auto', flex: 'none' }}
+                          onClick={(ev) => { ev.stopPropagation(); setModelFor(e); }}>
+                          Change model
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
                 );
               })}
             </div>
@@ -131,7 +154,52 @@ export function NewSession() {
           </p>
         </div>
       </div>
+      {modelFor ? (
+        <ModelOverrideModal expert={modelFor}
+          current={overrides[modelFor.id] || { provider: modelFor.provider, model: modelFor.model }}
+          isOverridden={!!overrides[modelFor.id]}
+          onReset={() => { setOverrides((o) => { const c = { ...o }; delete c[modelFor.id]; return c; }); setModelFor(null); }}
+          onSave={(v) => {
+            setOverrides((o) => {
+              // If they picked the expert's own library model, treat as no override.
+              if (v.provider === modelFor.provider && v.model === modelFor.model) {
+                const c = { ...o }; delete c[modelFor.id]; return c;
+              }
+              return { ...o, [modelFor.id]: v };
+            });
+            setModelFor(null);
+          }}
+          onClose={() => setModelFor(null)} />
+      ) : null}
     </Page>
+  );
+}
+
+// ---------- per-run model override popup ----------
+function ModelOverrideModal({ expert, current, isOverridden, onSave, onReset, onClose }) {
+  const [pick, setPick] = useState({ provider: current.provider, model: current.model });
+  return (
+    <Modal width={460} onClose={onClose}>
+      <ModalHeader title={`Model for ${expert.name}`}
+        sub="Applies to this session only — your saved expert isn't changed." onClose={onClose} />
+      <div style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div>
+          <label className="field-label">Model for this run</label>
+          <ModelPicker value={pick} onChange={setPick} />
+          <p className="field-hint">
+            {expert.name} normally runs on <strong>{expert.model}</strong>. This choice affects
+            only this council session and is preserved in its frozen record.
+          </p>
+        </div>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '6px 24px 22px' }}>
+        <button className="btn btn-ghost" disabled={!isOverridden} onClick={onReset}>Reset to default</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" disabled={!pick.provider || !pick.model} onClick={() => onSave(pick)}>Use this model</button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

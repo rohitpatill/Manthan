@@ -12,11 +12,19 @@ router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 
 
+class ModelOverride(BaseModel):
+    provider_type: str
+    model_id: str
+
+
 class SessionCreateIn(BaseModel):
     title: str = ""
     expert_ids: list[int]
     round2_enabled: bool = False
     synthesis_enabled: bool = True
+    # Per-run model overrides keyed by expert id. The chosen model applies to THIS
+    # session only; the library expert is untouched and dispatch won't re-sync it.
+    model_overrides: dict[int, ModelOverride] = {}
 
 
 class IntakeIn(BaseModel):
@@ -52,6 +60,11 @@ def _live_overlay_experts(conn, session: dict, experts: list[dict]) -> list[dict
             "SELECT name, title, persona, avatar_url, provider_type, model_id, max_words, domain FROM experts WHERE id = ?",
             (e["expert_id"],)).fetchone())
         if live:
+            # A per-run model override is authoritative — keep the session's chosen
+            # provider/model rather than overlaying the live library model.
+            if e.get("overridden"):
+                live.pop("provider_type", None)
+                live.pop("model_id", None)
             e.update(live)
     return experts
 
@@ -108,6 +121,9 @@ async def create_session(payload: SessionCreateIn):
             raise HTTPException(status_code=400, detail="One or more selected experts do not exist.")
         for expert in experts:
             llm.validate_model_choice(conn, expert["provider_type"], expert["model_id"])
+        # Validate any per-run model overrides (must be a key-valid model too).
+        for eid, ov in payload.model_overrides.items():
+            llm.validate_model_choice(conn, ov.provider_type, ov.model_id)
         llm.get_default_model(conn)  # intake/synthesis model must be configured
         title = payload.title.strip() or "Untitled Council Session"
         cursor = conn.execute(
@@ -119,12 +135,16 @@ async def create_session(payload: SessionCreateIn):
         by_id = {e["id"]: e for e in experts}
         for idx, expert_id in enumerate(payload.expert_ids):
             e = by_id[expert_id]
+            ov = payload.model_overrides.get(expert_id)
+            provider_type = ov.provider_type if ov else e["provider_type"]
+            model_id = ov.model_id if ov else e["model_id"]
+            overridden = 1 if ov else 0
             conn.execute(
                 """INSERT INTO session_experts
-                   (session_id, expert_id, name, title, persona, avatar_url, provider_type, model_id, max_words, domain, sort_order)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (session_id, expert_id, name, title, persona, avatar_url, provider_type, model_id, max_words, domain, overridden, sort_order)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (session_id, e["id"], e["name"], e["title"], e["persona"],
-                 e["avatar_url"], e["provider_type"], e["model_id"], e["max_words"], e["domain"], idx),
+                 e["avatar_url"], provider_type, model_id, e["max_words"], e["domain"], overridden, idx),
             )
         detail = _session_detail(conn, session_id)
     return {"status": "ok", **detail}
@@ -227,15 +247,29 @@ async def dispatch(session_id: int, payload: DispatchIn):
         # live expert (model/persona/name/title/avatar) so edits made after the
         # session was created take effect. Skip if the expert was deleted, or if its
         # provider no longer has a valid key (keep the prior snapshot in that case).
+        # EXCEPTION: a participant with a per-run model override keeps its chosen
+        # provider/model (only the non-model fields re-sync from the library).
         valid_providers = {r["provider_type"] for r in conn.execute(
             "SELECT provider_type FROM provider_configs WHERE is_valid = 1").fetchall()}
         participants = db.rows_to_dicts(conn.execute(
-            "SELECT id, expert_id FROM session_experts WHERE session_id = ?", (session_id,)).fetchall())
+            "SELECT id, expert_id, overridden FROM session_experts WHERE session_id = ?", (session_id,)).fetchall())
         for p in participants:
             if not p["expert_id"]:
                 continue
             ex = db.row_to_dict(conn.execute("SELECT * FROM experts WHERE id = ?", (p["expert_id"],)).fetchone())
-            if not ex or ex["provider_type"] not in valid_providers:
+            if not ex:
+                continue
+            if p["overridden"]:
+                # Preserve the overridden model; refresh only persona/name/etc.
+                conn.execute(
+                    """UPDATE session_experts
+                       SET name = ?, title = ?, persona = ?, avatar_url = ?, max_words = ?, domain = ?
+                       WHERE id = ?""",
+                    (ex["name"], ex["title"], ex["persona"], ex["avatar_url"],
+                     ex["max_words"], ex["domain"], p["id"]),
+                )
+                continue
+            if ex["provider_type"] not in valid_providers:
                 continue
             conn.execute(
                 """UPDATE session_experts

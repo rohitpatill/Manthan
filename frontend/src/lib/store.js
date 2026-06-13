@@ -96,7 +96,8 @@ function mapSessionExpert(se) {
   return {
     id: se.id, expertId: se.expert_id, name: se.name, title: se.title, persona: se.persona,
     avatar: se.avatar_url ? { value: se.avatar_url } : null,
-    provider: se.provider_type, model: se.model_id, maxWords: se.max_words ?? 300, color: colorFor(se.id),
+    provider: se.provider_type, model: se.model_id, maxWords: se.max_words ?? 300,
+    overridden: !!se.overridden, color: colorFor(se.id),
   };
 }
 
@@ -432,10 +433,15 @@ export const API = {
   // --- sessions ---
   getSession: (id) => state.details[id],
   loadDetail, loadSessions, loadAnalytics,
-  async createSession({ expertIds, round2, synthesis, title }) {
+  async createSession({ expertIds, round2, synthesis, title, modelOverrides }) {
+    const overrides = {};
+    Object.entries(modelOverrides || {}).forEach(([eid, v]) => {
+      if (v && v.provider && v.model) overrides[eid] = { provider_type: v.provider, model_id: v.model };
+    });
     const payload = await http('POST', '/api/sessions', {
       title: title || '', expert_ids: expertIds,
       round2_enabled: round2, synthesis_enabled: synthesis,
+      model_overrides: overrides,
     });
     state.details[payload.session.id] = normalizeDetail(payload);
     await loadSessions(); notify();

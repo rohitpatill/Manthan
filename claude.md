@@ -140,7 +140,8 @@ backend/
 │   │                     (panel suggestion), pack/preview (what an import would add vs skip)
 │   │                     and pack/import (idempotent import of data/expert_pack.json, all
 │   │                     assigned the one model the user picks).
-│   ├── sessions.py       /api/sessions : create, list, detail, rename, delete, intake turn,
+│   ├── sessions.py       /api/sessions : create (with optional per-run model_overrides),
+│   │                     list, detail, rename, delete, intake turn,
 │   │                     pending-brief save, back-to-briefing, dispatch (R1 SSE), round2 (SSE),
 │   │                     synthesize (SSE), expert retry (SSE). Holds _live_overlay_experts.
 │   ├── analytics.py      /api/analytics : filtered rollups + time series (range/granularity/
@@ -203,7 +204,8 @@ frontend/
         │                   (manual; includes domain dropdown + max-words), BuilderChat (Manthan
         │                   AI), ImportPackModal (pick one model → preview → idempotent import),
         │                   groupByDomain(), expertNeedsReassignment().
-        ├── session.jsx     Session lifecycle controller: NewSession (configure), IntakeChat,
+        ├── session.jsx     Session lifecycle controller: NewSession (configure — selected experts
+        │                   have a per-run "Change model" popup, ModelOverrideModal), IntakeChat,
         │                   BriefApproval, SessionScreen (routes to the right phase view).
         ├── panel.jsx       LivePanel (rounds + synthesis, stepper, stop banner, retry/resume),
         │                   FrozenView (full archived record + cost breakdown), SessionCostTicker.
@@ -259,9 +261,12 @@ sessions(
 session_experts(                                  -- snapshot of experts chosen for a session
   id, session_id→sessions, expert_id→experts (nullable if source deleted),
   name, title, persona, avatar_url,
-  provider_type, model_id, max_words, domain, sort_order)
+  provider_type, model_id, max_words, domain,
+  overridden,                                     -- 1 = model was overridden for THIS session at create time
+  sort_order)
   -- Re-synced from the live expert at DISPATCH while not-yet-run; frozen after.
   -- max_words and domain are snapshotted/re-synced alongside model & persona.
+  -- If overridden=1, the per-run provider/model is preserved (NOT re-synced from the library).
 
 intake_messages(id, session_id→sessions, role, content, created_at)  -- the briefing chat
 
@@ -279,7 +284,8 @@ usage_log(                                        -- one row per LLM call (power
 
 `init_db()` also performs **idempotent migrations** (ALTER TABLE ADD COLUMN guarded by a
 PRAGMA check) for columns added over time (masked_key, pending_brief, experts.max_words,
-experts.domain, experts.pack_key, session_experts.max_words, session_experts.domain, etc.).
+experts.domain, experts.pack_key, session_experts.max_words, session_experts.domain,
+session_experts.overridden, etc.).
 Adding a new column = add it to the CREATE TABLE *and* add a guarded ALTER for existing DBs.
 
 ---
@@ -332,8 +338,11 @@ drive the live panel and the resume/retry banners.
 - Suggestion (in NewSession): `POST /api/experts/suggest {problem}` → relevant expert ids.
 
 ### 7.3 The council session (the heart) — request/data flow
-1. **Create:** `POST /api/sessions {title, expert_ids, round2_enabled, synthesis_enabled}`.
-   Backend snapshots chosen experts into `session_experts`.
+1. **Create:** `POST /api/sessions {title, expert_ids, round2_enabled, synthesis_enabled,
+   model_overrides}`. Backend snapshots chosen experts into `session_experts`. `model_overrides`
+   is an optional `{expert_id: {provider_type, model_id}}` map (set on the convene screen via the
+   per-expert "Change model" popup) — the chosen model applies to THIS session only, is validated
+   (key-gated), and marks that participant `overridden=1`. The library expert is never changed.
 2. **Intake chat:** `POST /api/sessions/{id}/intake {message}` (per turn). Manthan AI (default
    model, JSON mode) returns `{assistant_message, ready_to_dispatch, compiled_brief}`. When
    ready, the brief is saved to `sessions.pending_brief` (survives refresh).
@@ -342,7 +351,8 @@ drive the live panel and the resume/retry banners.
 4. **Dispatch (Round 1):** `POST /api/sessions/{id}/dispatch {brief}` →
    - stores `compiled_brief`, clears `pending_brief`;
    - **re-reads each not-yet-run session_expert from its live source expert** (model/persona/
-     max_words) — unless the expert was deleted or its provider key is now invalid;
+     max_words) — unless the expert was deleted or its provider key is now invalid. A participant
+     with `overridden=1` keeps its per-run provider/model (only persona/name/etc. re-sync);
    - streams Round 1 as **SSE** (see §7.4). Each expert: persona system prompt (with its own
      `max_words` cap) + the brief only (blind). Answers stream in parallel.
 5. **Synthesis (if enabled):** `POST /api/sessions/{id}/synthesize?round=1` (SSE). Manthan AI
@@ -451,6 +461,7 @@ npm run build             # production bundle to dist/
 | Add a new LLM provider | New `providers/<x>_provider.py` extending `BaseProvider` (impl `validate_api_key`, `generate_json`, `stream_text`); register in `factory.py`; add to `PROVIDER_CATALOG`; add display meta in `frontend/src/lib/catalog.js`. |
 | Change an LLM prompt | `backend/prompts.py` (intake, builder, suggest, expert system prompt, round-2 context, synthesis). Verify via the session log. |
 | Add/edit pack experts | Edit `backend/data/expert_pack.json` (each needs a unique `pack_key`, plus name/title/domain/persona). Count is read live — no code change. Re-import is idempotent by `pack_key`. |
+| Per-run model override | Set on the convene screen (`session.jsx` ModelOverrideModal) → `model_overrides` in `POST /api/sessions` → snapshot stores it with `session_experts.overridden=1`; dispatch re-sync (`sessions.py`) preserves model for overridden participants. Library expert untouched; frozen session keeps the model it ran with. |
 | Add/rename a domain | Domains are free text on `experts.domain` — just type a new one in the editor, set it in the pack JSON, or let the AI builder propose it. No table, no migration. Library grouping (`groupByDomain`/`DomainAccordion` in `experts.jsx`) picks it up automatically. |
 | Adjust answer word limits | Per-expert: `experts.max_words` (UI in `experts.jsx` ExpertEditor; flows store → `prompts.expert_system_prompt`/`round2_user_message`). Global synthesis: `synthesis_max_words` setting (UI in `settings.jsx`; `PUT /api/providers/app-settings`; read in `orchestrator._synthesis_max_words` → `prompts.synthesis_system_prompt`). |
 | Add a DB column | `db.py :: init_db` — add to CREATE TABLE **and** a guarded `ALTER TABLE ADD COLUMN`. |

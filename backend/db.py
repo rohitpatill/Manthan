@@ -92,6 +92,7 @@ def init_db() -> None:
                 model_id TEXT NOT NULL,
                 max_words INTEGER NOT NULL DEFAULT 300,
                 domain TEXT NOT NULL DEFAULT '',
+                overridden INTEGER NOT NULL DEFAULT 0,
                 sort_order INTEGER NOT NULL DEFAULT 0
             );
 
@@ -150,6 +151,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE session_experts ADD COLUMN max_words INTEGER NOT NULL DEFAULT 300")
         if "domain" not in session_expert_columns:
             conn.execute("ALTER TABLE session_experts ADD COLUMN domain TEXT NOT NULL DEFAULT ''")
+        if "overridden" not in session_expert_columns:
+            conn.execute("ALTER TABLE session_experts ADD COLUMN overridden INTEGER NOT NULL DEFAULT 0")
 
 
 def mask_key(key: str) -> str:

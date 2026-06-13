@@ -165,6 +165,45 @@ def test_session_expert_count_limits():
     assert client.post("/api/sessions", json={"expert_ids": list(range(1, 13))}).status_code == 400
 
 
+def test_per_run_model_override_persists_through_dispatch():
+    """A per-run model override is stored on the session_expert and is NOT overwritten by
+    the dispatch re-sync (which otherwise re-reads the live library model)."""
+    experts = client.get("/api/experts").json()["experts"]
+    eid = experts[0]["id"]
+    lib_model = experts[0]["model_id"]
+    override = {"provider_type": "anthropic", "model_id": "claude-opus-4.7"}
+    assert override["model_id"] != lib_model  # ensure the override is a real change
+
+    r = client.post("/api/sessions", json={
+        "title": "Override test", "expert_ids": [eid],
+        "round2_enabled": False, "synthesis_enabled": False,
+        "model_overrides": {str(eid): override}})
+    assert r.status_code == 200, r.text
+    detail = r.json()
+    sid = detail["session"]["id"]
+    se = detail["experts"][0]
+    assert se["provider_type"] == "anthropic"
+    assert se["model_id"] == "claude-opus-4.7"
+    assert se["overridden"] == 1
+
+    # Dispatch re-syncs from the library but must PRESERVE the override.
+    with client.stream("POST", f"/api/sessions/{sid}/dispatch",
+                       json={"brief": "BRIEF: test override"}) as resp:
+        assert resp.status_code == 200
+        collect_sse(resp)
+    after = client.get(f"/api/sessions/{sid}").json()["experts"][0]
+    assert after["model_id"] == "claude-opus-4.7", "override was wiped by dispatch re-sync"
+
+
+def test_session_create_rejects_invalid_override_model():
+    experts = client.get("/api/experts").json()["experts"]
+    eid = experts[0]["id"]
+    r = client.post("/api/sessions", json={
+        "expert_ids": [eid],
+        "model_overrides": {str(eid): {"provider_type": "openai", "model_id": "nonexistent-model"}}})
+    assert r.status_code == 400
+
+
 def test_intake_not_ready_then_ready(session_id):
     r = client.post(f"/api/sessions/{session_id}/intake", json={"message": "hi"})
     assert r.status_code == 200
