@@ -51,7 +51,7 @@ export function NewSession() {
 
   return (
     <Page title="Convene the Council" sub="Choose who deliberates and how far the deliberation goes. You'll brief them next.">
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 22, alignItems: 'start' }}>
+      <div className="mn-2col" style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 22, alignItems: 'start' }}>
         <div>
           <div className="card" style={{ padding: 20, marginBottom: 16 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 4 }}>
@@ -110,7 +110,7 @@ export function NewSession() {
           </div>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, position: 'sticky', top: 36 }}>
+        <div className="mn-sticky" style={{ display: 'flex', flexDirection: 'column', gap: 14, position: 'sticky', top: 36 }}>
           <div className="card" style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 18 }}>
             <h3 style={{ fontSize: 15 }}>Deliberation</h3>
             <Toggle value={round2} onChange={setRound2} label="Round 2 — the debate"
@@ -193,7 +193,7 @@ function BriefApproval({ ses }) {
   const blocked = experts.filter((e) => !API.keyValid(e.provider));
 
   return (
-    <div style={{ maxWidth: 1010, margin: '0 auto', padding: '32px 32px 64px' }}>
+    <div style={{ maxWidth: 1010, margin: '0 auto', padding: '32px 32px 64px' }} className="mn-pad">
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
         <span className="badge badge-amber"><Icon name="doc" size={12} /> Approval required</span>
       </div>
@@ -202,11 +202,11 @@ function BriefApproval({ ses }) {
         Every expert receives <em>exactly</em> this text — independently, with no knowledge of each other.
         Edit anything Manthan AI got wrong; {experts.length} parallel calls are too expensive to spend on a misunderstood brief.
       </p>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: 22, alignItems: 'start' }}>
+      <div className="mn-2col" style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: 22, alignItems: 'start' }}>
         <textarea className="textarea card" style={{ minHeight: 420, padding: 22, fontSize: 13.5, lineHeight: 1.7, borderRadius: 'var(--r-lg)' }}
           value={brief} onChange={(e) => setBrief(e.target.value)}
           onBlur={() => API.saveBrief(ses.id, brief)} />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, position: 'sticky', top: 32 }}>
+        <div className="mn-sticky" style={{ display: 'flex', flexDirection: 'column', gap: 14, position: 'sticky', top: 32 }}>
           <div className="card" style={{ padding: 18 }}>
             <h4 style={{ fontSize: 13, marginBottom: 10 }}>The panel</h4>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>

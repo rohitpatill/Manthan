@@ -193,6 +193,7 @@ function SortTable({ title, rows, columns, defaultSort }) {
   return (
     <div style={cell}>
       <h4 style={{ fontSize: 13.5, marginBottom: 12 }}>{title}</h4>
+      <div className="mn-scroll-x">
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
         <thead>
           <tr style={{ textAlign: 'left', color: 'var(--ink-3)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em' }}>
@@ -217,6 +218,7 @@ function SortTable({ title, rows, columns, defaultSort }) {
           {!sorted.length ? <tr><td colSpan={columns.length} style={{ padding: 16, color: 'var(--ink-3)', textAlign: 'center' }}>No data in this range.</td></tr> : null}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
@@ -271,14 +273,14 @@ export function Analytics() {
     <Page title="Analytics" sub="Token usage and spend across every call Manthan makes with your keys — by model, provider, expert, and session." wide>
       {filterBar}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 14, opacity: loading ? 0.55 : 1, transition: 'opacity .15s' }}>
+      <div className="mn-kpis" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 14, opacity: loading ? 0.55 : 1, transition: 'opacity .15s' }}>
         <StatCard label="Total spend" value={Catalog.fmtCost(t.cost)} sub={t.calls + ' calls metered'} />
         <StatCard label="Input tokens" value={Catalog.fmtTok(t.input_tokens)} sub={cachedPct + '% served from cache'} />
         <StatCard label="Output tokens" value={Catalog.fmtTok(t.output_tokens)} />
         <StatCard label="Sessions" value={String(state.sessions.length)} sub={frozenCount + ' frozen'} />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.5fr) minmax(0, 1fr)', gap: 14, marginBottom: 14, alignItems: 'stretch', opacity: loading ? 0.55 : 1, transition: 'opacity .15s' }}>
+      <div className="mn-stack" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.5fr) minmax(0, 1fr)', gap: 14, marginBottom: 14, alignItems: 'stretch', opacity: loading ? 0.55 : 1, transition: 'opacity .15s' }}>
         <div style={{ ...cell, display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, gap: 10, flexWrap: 'wrap' }}>
             <h4 style={{ fontSize: 13.5 }}>Spend over time</h4>
@@ -300,7 +302,7 @@ export function Analytics() {
           colorOf={() => 'var(--ink-3)'} labelOf={(r) => PURPOSE_LABEL[r.purpose] || r.purpose} />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 14, marginBottom: 14, opacity: loading ? 0.55 : 1, transition: 'opacity .15s' }}>
+      <div className="mn-stack" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 14, marginBottom: 14, opacity: loading ? 0.55 : 1, transition: 'opacity .15s' }}>
         <SortTable title="By expert" rows={a.by_expert.filter((r) => r.expert_name !== 'Manthan AI')}
           columns={[
             { key: 'expert_name', label: 'Expert', bold: true, sortable: false },

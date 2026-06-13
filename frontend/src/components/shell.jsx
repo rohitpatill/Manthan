@@ -1,12 +1,12 @@
 // ============ Manthan — app shell (sidebar + layout) ============
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { API } from '../lib/store';
 import { Catalog } from '../lib/catalog';
 import { useStore, Icon, ManthanMark } from './ui';
 
 export function navigate(path) { location.hash = '#' + path; }
 
-function Sidebar({ route }) {
+function Sidebar({ route, onNavigate }) {
   const state = useStore();
   const items = [
     { path: '/home', icon: 'home', label: 'Sessions' },
@@ -15,8 +15,9 @@ function Sidebar({ route }) {
     { path: '/settings', icon: 'gear', label: 'Settings' },
   ];
   const validKeys = Catalog.PROVIDERS.filter((p) => API.keyValid(p));
+  const go = (path) => { navigate(path); onNavigate && onNavigate(); };
   return (
-    <aside style={{
+    <aside className="mn-sidebar" style={{
       width: 228, flex: 'none', background: 'var(--navy)', color: 'var(--navy-ink)',
       display: 'flex', flexDirection: 'column', padding: '20px 14px 16px',
     }}>
@@ -26,7 +27,7 @@ function Sidebar({ route }) {
       </div>
 
       <button className="btn btn-gold" style={{ width: '100%', height: 40, marginBottom: 18 }}
-        onClick={() => navigate('/new')}>
+        onClick={() => go('/new')}>
         <Icon name="spark" size={15} /> Convene the Council
       </button>
 
@@ -34,7 +35,7 @@ function Sidebar({ route }) {
         {items.map((it) => {
           const active = route.startsWith(it.path) || (it.path === '/home' && (route.startsWith('/session') || route === '/' || route === ''));
           return (
-            <a key={it.path} href={'#' + it.path}
+            <a key={it.path} href={'#' + it.path} onClick={() => onNavigate && onNavigate()}
               style={{
                 display: 'flex', alignItems: 'center', gap: 11, padding: '9px 10px', borderRadius: 8,
                 color: active ? '#fff' : 'var(--navy-ink)', textDecoration: 'none', fontWeight: 600, fontSize: 13.5,
@@ -67,10 +68,39 @@ function Sidebar({ route }) {
 }
 
 export function Shell({ route, children }) {
+  const [drawer, setDrawer] = useState(false);
+  // close the drawer whenever the route changes
+  useEffect(() => { setDrawer(false); }, [route]);
+  // lock body scroll while the drawer is open
+  useEffect(() => {
+    document.body.style.overflow = drawer ? 'hidden' : '';
+    return () => { document.body.style.overflow = ''; };
+  }, [drawer]);
+
   return (
-    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
-      <Sidebar route={route} />
-      <main style={{ flex: 1, overflowY: 'auto', minWidth: 0 }}>
+    <div className="mn-shell" style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+      {/* mobile-only top bar */}
+      <div className="mn-topbar">
+        <button className="btn btn-subtle btn-sm" aria-label="Open menu" onClick={() => setDrawer(true)}
+          style={{ color: '#fff' }}>
+          <Icon name="dots" size={18} />
+        </button>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: '#fff' }}>
+          <ManthanMark size={20} color="#E8B54D" />
+          <span style={{ fontWeight: 800, fontSize: 16 }}>Manthan</span>
+        </span>
+        <span style={{ width: 30 }} />
+      </div>
+
+      {/* backdrop (mobile, when drawer open) */}
+      {drawer ? <div className="mn-backdrop" onClick={() => setDrawer(false)} /> : null}
+
+      {/* sidebar — static column on desktop, slide-in drawer on mobile */}
+      <div className={'mn-sidebar-wrap' + (drawer ? ' open' : '')}>
+        <Sidebar route={route} onNavigate={() => setDrawer(false)} />
+      </div>
+
+      <main className="mn-main" style={{ flex: 1, overflowY: 'auto', minWidth: 0 }}>
         {children}
       </main>
     </div>
@@ -79,9 +109,9 @@ export function Shell({ route, children }) {
 
 export function Page({ title, sub, actions, children, wide }) {
   return (
-    <div style={{ maxWidth: wide ? 1320 : 1080, margin: '0 auto', padding: '36px 40px 64px' }}>
+    <div className="mn-page" style={{ maxWidth: wide ? 1320 : 1080, margin: '0 auto', padding: '36px 40px 64px' }}>
       {title ? (
-        <header style={{ display: 'flex', alignItems: 'flex-end', gap: 16, marginBottom: 26 }}>
+        <header className="mn-page-header" style={{ display: 'flex', alignItems: 'flex-end', gap: 16, marginBottom: 26 }}>
           <div style={{ flex: 1 }}>
             <h1 style={{ fontSize: 23 }}>{title}</h1>
             {sub ? <p style={{ color: 'var(--ink-2)', fontSize: 13.5, marginTop: 5, maxWidth: 560 }}>{sub}</p> : null}

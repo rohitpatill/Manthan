@@ -315,7 +315,7 @@ function StopBanner({ ses }) {
 export function LivePanel({ ses }) {
   const activeRound = (ses.status === 'round2' || ses.status === 'round2-partial' || ses.status === 'synthesis2' || Object.keys(ses.rounds[2] || {}).length) ? 2 : 1;
   return (
-    <div style={{ maxWidth: 1180, margin: '0 auto', padding: '24px 32px 64px' }}>
+    <div style={{ maxWidth: 1180, margin: '0 auto', padding: '24px 32px 64px' }} className="mn-pad">
       <div style={{ marginBottom: 20 }}><PhaseStepper ses={ses} /></div>
       <StopBanner ses={ses} />
       <RunBanners ses={ses} />
@@ -360,7 +360,7 @@ const PURPOSE_LABEL = {
 export function FrozenView({ ses }) {
   const totals = API.sessionCost(ses.id);
   return (
-    <div style={{ maxWidth: 1180, margin: '0 auto', padding: '24px 32px 64px' }}>
+    <div style={{ maxWidth: 1180, margin: '0 auto', padding: '24px 32px 64px' }} className="mn-pad">
       <div className="card" style={{ padding: '18px 22px', marginBottom: 22, display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
         <span style={{ width: 40, height: 40, borderRadius: 11, background: 'var(--line-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink-2)', flex: 'none' }}>
           <Icon name="lock" size={19} />
@@ -423,6 +423,7 @@ export function FrozenView({ ses }) {
       ) : null}
 
       <Collapsible title="Cost breakdown" sub={Catalog.fmtCost(totals.cost)}>
+        <div className="mn-scroll-x">
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
           <thead>
             <tr style={{ textAlign: 'left', color: 'var(--ink-3)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em' }}>
@@ -449,6 +450,7 @@ export function FrozenView({ ses }) {
             ))}
           </tbody>
         </table>
+        </div>
       </Collapsible>
     </div>
   );

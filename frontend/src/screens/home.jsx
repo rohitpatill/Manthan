@@ -9,7 +9,7 @@ function SessionRow({ ses }) {
   const [confirm, setConfirm] = useState(false);
   const experts = ses.experts;
   return (
-    <div className="card" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 16, cursor: 'pointer', transition: 'box-shadow .15s, border-color .15s' }}
+    <div className="card mn-session-row" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 16, cursor: 'pointer', transition: 'box-shadow .15s, border-color .15s' }}
       onClick={() => navigate('/session/' + ses.id)}
       onMouseEnter={(e) => { e.currentTarget.style.boxShadow = 'var(--shadow-md)'; e.currentTarget.style.borderColor = '#CDD5E0'; }}
       onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'var(--shadow-sm)'; e.currentTarget.style.borderColor = 'var(--line)'; }}>
@@ -25,17 +25,19 @@ function SessionRow({ ses }) {
           {ses.synthesis ? <span>synthesis</span> : null}
         </div>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center' }}>
-        {experts.slice(0, 6).map((e, i) => (
-          <div key={e.id} style={{ marginLeft: i === 0 ? 0 : -8, border: '2px solid #fff', borderRadius: '50%' }}>
-            <ExpertAvatar expert={e} size={28} />
-          </div>
-        ))}
-        {experts.length > 6 ? <span style={{ marginLeft: 6, fontSize: 12, color: 'var(--ink-3)', fontWeight: 600 }}>+{experts.length - 6}</span> : null}
+      <div className="mn-session-meta" style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          {experts.slice(0, 6).map((e, i) => (
+            <div key={e.id} style={{ marginLeft: i === 0 ? 0 : -8, border: '2px solid #fff', borderRadius: '50%' }}>
+              <ExpertAvatar expert={e} size={28} />
+            </div>
+          ))}
+          {experts.length > 6 ? <span style={{ marginLeft: 6, fontSize: 12, color: 'var(--ink-3)', fontWeight: 600 }}>+{experts.length - 6}</span> : null}
+        </div>
+        <span className="mono" style={{ width: 64, textAlign: 'right', fontSize: 13, fontWeight: 700, color: 'var(--ink-2)' }}>
+          {ses.totalCost ? Catalog.fmtCost(ses.totalCost) : '—'}
+        </span>
       </div>
-      <span className="mono" style={{ width: 64, textAlign: 'right', fontSize: 13, fontWeight: 700, color: 'var(--ink-2)' }}>
-        {ses.totalCost ? Catalog.fmtCost(ses.totalCost) : '—'}
-      </span>
       <div onClick={(e) => e.stopPropagation()}>
         <Menu items={[
           { icon: 'edit', label: 'Rename', onClick: () => {
