@@ -225,7 +225,7 @@ async def suggest_experts(payload: SuggestIn):
     parsed, usage = await llm.call_json(
         provider_type=provider_type, model_id=model_id, api_key=api_key,
         system_prompt=prompts.SUGGEST_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_msg}], max_tokens=400,
+        messages=[{"role": "user", "content": user_msg}], max_tokens=2000,
         log_purpose="suggest",
     )
     valid_ids = {e["id"] for e in experts}

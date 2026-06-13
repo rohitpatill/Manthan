@@ -2,11 +2,47 @@
 from __future__ import annotations
 
 import json
+import re
 
 from fastapi import HTTPException
 
 import db
 from providers import PROVIDER_CATALOG, compute_cost, get_provider, model_exists
+
+_FENCE_RE = re.compile(r"```(?:json|JSON)?\s*(.*?)\s*```", re.DOTALL)
+
+
+def extract_json(text: str):
+    """Parse a JSON object/array out of a model response, tolerating the common ways models
+    wrap or pad it: ```json fences, a leading/trailing sentence, or stray whitespace.
+
+    Strategy: (1) try the whole string; (2) try the contents of the first ```fenced``` block;
+    (3) fall back to the substring from the first {/[ to its matching last }/]. Raises
+    json.JSONDecodeError if nothing parses."""
+    candidates: list[str] = []
+    stripped = (text or "").strip()
+    candidates.append(stripped)
+
+    fence = _FENCE_RE.search(stripped)
+    if fence:
+        candidates.append(fence.group(1).strip())
+
+    # Outermost object or array anywhere in the text.
+    for open_ch, close_ch in (("{", "}"), ("[", "]")):
+        start = stripped.find(open_ch)
+        end = stripped.rfind(close_ch)
+        if start != -1 and end > start:
+            candidates.append(stripped[start:end + 1])
+
+    last_exc: json.JSONDecodeError | None = None
+    for cand in candidates:
+        if not cand:
+            continue
+        try:
+            return json.loads(cand)
+        except json.JSONDecodeError as exc:
+            last_exc = exc
+    raise last_exc if last_exc else json.JSONDecodeError("No JSON found", stripped or "", 0)
 
 
 def get_api_key(conn, provider_type: str) -> str:
@@ -74,7 +110,7 @@ async def call_json(*, provider_type: str, model_id: str, api_key: str,
         api_key=api_key, model=model_id, system_prompt=system_prompt,
         messages=messages, max_tokens=max_tokens,
     )
-    text = result["text"].strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+    text = result["text"]
     usage = result.get("usage", {})
     if log_purpose:
         session_logger.log_call(
@@ -84,7 +120,7 @@ async def call_json(*, provider_type: str, model_id: str, api_key: str,
             duration_ms=int((time.monotonic() - started) * 1000), expert_name=log_expert_name,
         )
     try:
-        parsed = json.loads(text)
+        parsed = extract_json(text)
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=502, detail="The model returned malformed JSON. Please try again.") from exc
     return parsed, usage

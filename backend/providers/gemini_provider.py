@@ -37,6 +37,10 @@ class GeminiProvider(BaseProvider):
         generation_config: dict = {"maxOutputTokens": max_tokens}
         if json_mode:
             generation_config["responseMimeType"] = "application/json"
+            # Thinking models (e.g. Gemini 3.x Pro) otherwise spend most of maxOutputTokens
+            # "thinking", leaving too little budget for the JSON and truncating it. For these
+            # structured utility calls a small thinking budget is plenty and avoids truncation.
+            generation_config["thinkingConfig"] = {"thinkingBudget": 256}
         return {
             "system_instruction": {"parts": [{"text": system_prompt}]},
             "contents": contents,
