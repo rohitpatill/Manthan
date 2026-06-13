@@ -12,11 +12,16 @@ export function expertNeedsReassignment(expert) { return !API.keyValid(expert.pr
 
 // ---------- editor modal ----------
 export function ExpertEditor({ initial, onClose }) {
+  const state = useStore();
   const [draft, setDraft] = useState(() => ({
     name: '', title: '', persona: '', avatar: null,
-    provider: null, model: null, maxWords: 300,
+    provider: null, model: null, maxWords: 300, domain: '',
     ...(initial || {}),
   }));
+  const existingDomains = Array.from(new Set(state.experts.map((e) => e.domain).filter(Boolean))).sort();
+  const NEW_DOMAIN = '__new__';
+  const [domainMode, setDomainMode] = useState(
+    () => (draft.domain && !existingDomains.includes(draft.domain) ? 'new' : 'pick'));
   const [avatarMode, setAvatarMode] = useState('upload');
   const [urlDraft, setUrlDraft] = useState(draft.avatar ? draft.avatar.value : '');
   const [saving, setSaving] = useState(false);
@@ -102,6 +107,30 @@ export function ExpertEditor({ initial, onClose }) {
             onChange={(e) => set('maxWords', e.target.value === '' ? '' : Math.max(50, Math.min(500, Number(e.target.value) || 0)))}
             onBlur={(e) => { if (e.target.value === '' || Number(e.target.value) < 50) set('maxWords', 300); }} />
           <p className="field-hint">How long this expert's answers may run, in both rounds. ~300 is the sweet spot — long enough to reason, short enough to read. Max 500.</p>
+        </div>
+
+        <div>
+          <label className="field-label">Domain</label>
+          {domainMode === 'new' ? (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input className="input" value={draft.domain} placeholder="e.g. Law, Architecture, Sports Science"
+                autoFocus onChange={(e) => set('domain', e.target.value)} />
+              {existingDomains.length ? (
+                <button className="btn btn-ghost" onClick={() => { setDomainMode('pick'); set('domain', ''); }}>Pick existing</button>
+              ) : null}
+            </div>
+          ) : (
+            <select className="input" value={existingDomains.includes(draft.domain) ? draft.domain : ''}
+              onChange={(e) => {
+                if (e.target.value === NEW_DOMAIN) { setDomainMode('new'); set('domain', ''); }
+                else set('domain', e.target.value);
+              }}>
+              <option value="">Others (uncategorized)</option>
+              {existingDomains.map((d) => <option key={d} value={d}>{d}</option>)}
+              <option value={NEW_DOMAIN}>+ Create new domain…</option>
+            </select>
+          )}
+          <p className="field-hint">Groups this expert on the library screen. Leave as "Others" if none fit.</p>
         </div>
         {error ? <p style={{ color: 'var(--red)', fontSize: 12.5 }}><Icon name="warn" size={13} /> {error}</p> : null}
       </div>
@@ -211,6 +240,7 @@ function ExpertCard({ expert, onEdit }) {
       </p>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
         <ModelChip provider={expert.provider} model={expert.model} invalid={invalid} />
+        {expert.packKey ? <span className="badge badge-gray">Manthan pack</span> : null}
         {expert.starter ? <span className="badge badge-gray">Starter — editable</span> : null}
       </div>
       {invalid ? (
@@ -226,11 +256,147 @@ function ExpertCard({ expert, onEdit }) {
   );
 }
 
+// Group experts by domain; "Others" (blank domain) always sorts last.
+function groupByDomain(experts) {
+  const map = new Map();
+  for (const e of experts) {
+    const key = (e.domain || '').trim() || 'Others';
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(e);
+  }
+  return [...map.entries()]
+    .sort((a, b) => (a[0] === 'Others' ? 1 : b[0] === 'Others' ? -1 : a[0].localeCompare(b[0])))
+    .map(([domain, list]) => ({ domain, experts: list }));
+}
+
+// Session-scoped memory of which domains are expanded (survives re-renders, resets on reload).
+const openDomains = new Set();
+let autoOpenedFirst = false;
+
+// ---------- domain accordion ----------
+function DomainAccordion({ groups, onEdit }) {
+  // Auto-open the first domain ONCE on initial mount; afterwards the user is free to
+  // collapse everything (including the first) and it stays collapsed.
+  if (!autoOpenedFirst && groups.length) { openDomains.add(groups[0].domain); autoOpenedFirst = true; }
+  const [, force] = useState(0);
+  const toggle = (domain) => {
+    if (openDomains.has(domain)) openDomains.delete(domain); else openDomains.add(domain);
+    force((n) => n + 1);
+  };
+  const allOpen = groups.every((g) => openDomains.has(g.domain));
+  const setAll = (open) => {
+    openDomains.clear();
+    if (open) groups.forEach((g) => openDomains.add(g.domain));
+    force((n) => n + 1);
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+        <button className="btn btn-ghost btn-sm" onClick={() => setAll(!allOpen)}>
+          {allOpen ? 'Collapse all' : 'Expand all'}
+        </button>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {groups.map(({ domain, experts }) => {
+          const open = openDomains.has(domain);
+          return (
+            <div key={domain} className="card" style={{ padding: 0, overflow: 'hidden' }}>
+              <button onClick={() => toggle(domain)}
+                style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left',
+                         background: open ? 'var(--surface-2)' : 'transparent', border: 0,
+                         padding: '14px 18px', cursor: 'pointer', transition: 'background .12s' }}
+                onMouseEnter={(e) => { if (!open) e.currentTarget.style.background = 'var(--surface-2)'; }}
+                onMouseLeave={(e) => { if (!open) e.currentTarget.style.background = 'transparent'; }}>
+                <Icon name="right" size={13}
+                  style={{ color: 'var(--ink-3)', flex: 'none', transition: 'transform .15s',
+                           transform: open ? 'rotate(90deg)' : 'none' }} />
+                <span style={{ fontWeight: 800, fontSize: 14, letterSpacing: '.01em', flex: 1 }}>{domain}</span>
+                <span className="badge badge-gray" style={{ flex: 'none' }}>{experts.length}</span>
+              </button>
+              {open ? (
+                <div className="fade-up" style={{ padding: '4px 18px 18px', borderTop: '1px solid var(--line-2)' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))', gap: 14, marginTop: 14 }}>
+                    {experts.map((e) => <ExpertCard key={e.id} expert={e} onEdit={onEdit} />)}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---------- import pack modal ----------
+function ImportPackModal({ onClose }) {
+  const state = useStore();
+  const [preview, setPreview] = useState(null);
+  const [model, setModel] = useState(state.defaultModel || null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [done, setDone] = useState(null);
+  useEffect(() => { API.previewPack().then(setPreview).catch((e) => setError(e.message)); }, []);
+
+  const run = async () => {
+    if (!model) return;
+    setBusy(true); setError(null);
+    try { const added = await API.importPack(model.provider, model.model); setDone(added); }
+    catch (e) { setError(e.message); setBusy(false); }
+  };
+
+  return (
+    <Modal width={560} onClose={onClose}>
+      <ModalHeader title="Import the Manthan expert pack"
+        sub="A curated library of experts across many domains. Pick one model for them all." onClose={onClose} />
+      <div style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {done !== null ? (
+          <div className="fade-up" style={{ textAlign: 'center', padding: '12px 0' }}>
+            <p style={{ fontWeight: 800, fontSize: 16, marginBottom: 6 }}>Imported {done} expert{done === 1 ? '' : 's'}.</p>
+            <p style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>They’re grouped by domain in your library. Edit any of them freely.</p>
+          </div>
+        ) : (
+          <>
+            <div>
+              <label className="field-label">Model for all imported experts</label>
+              <ModelPicker value={model} onChange={setModel} />
+              <p className="field-hint">Every imported expert is assigned this model. You can change individual experts afterward.</p>
+            </div>
+            {preview ? (
+              <div className="card" style={{ padding: 14, background: 'var(--surface-2)' }}>
+                <p style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>
+                  Adding {preview.to_add} of {preview.total}
+                  {preview.already_present ? ` · ${preview.already_present} already in your library (skipped)` : ''}
+                </p>
+                <p style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+                  Across {preview.domains.length} domains: {preview.domains.join(', ')}.
+                  {preview.to_add === 0 ? ' Nothing new to import.' : ''}
+                </p>
+              </div>
+            ) : <p style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>Loading pack…</p>}
+            {error ? <p style={{ color: 'var(--red)', fontSize: 12.5 }}><Icon name="warn" size={13} /> {error}</p> : null}
+          </>
+        )}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '6px 24px 22px' }}>
+        <button className="btn btn-ghost" onClick={onClose}>{done !== null ? 'Close' : 'Cancel'}</button>
+        {done === null ? (
+          <button className="btn btn-primary" disabled={!model || busy || (preview && preview.to_add === 0)} onClick={run}>
+            {busy ? 'Importing…' : `Import ${preview ? preview.to_add : ''} experts`}
+          </button>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
+
 export function Experts() {
   const state = useStore();
   const [editing, setEditing] = useState(null);
   const [builder, setBuilder] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [importing, setImporting] = useState(false);
   const createRef = useRef(null);
   useEffect(() => {
     if (!createOpen) return;
@@ -246,6 +412,8 @@ export function Experts() {
       title="Experts"
       sub="Reusable personas, each assigned to the model best suited to its kind of thinking. Build once, convene in any session."
       actions={
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <button className="btn btn-subtle" onClick={() => setImporting(true)}><Icon name="spark" size={14} /> Import experts</button>
         <div ref={createRef} style={{ position: 'relative' }}>
           <button className="btn btn-primary" onClick={() => setCreateOpen(!createOpen)}><Icon name="plus" size={14} /> New expert</button>
           {createOpen ? (
@@ -268,6 +436,7 @@ export function Experts() {
             </div>
           ) : null}
         </div>
+        </div>
       }>
       {needsFix.length ? (
         <div className="card" style={{ padding: '12px 16px', marginBottom: 18, borderColor: 'var(--red)', background: 'var(--red-tint)', display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -282,15 +451,14 @@ export function Experts() {
           body="An expert is a persona plus a model. Describe one to Manthan AI, or write the persona yourself."
           action={<button className="btn btn-primary" onClick={() => setBuilder(true)}><Icon name="chat" size={14} /> Draft with Manthan AI</button>} />
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))', gap: 14 }}>
-          {state.experts.map((e) => <ExpertCard key={e.id} expert={e} onEdit={setEditing} />)}
-        </div>
+        <DomainAccordion groups={groupByDomain(state.experts)} onEdit={setEditing} />
       )}
       {editing ? <ExpertEditor initial={editing} onClose={() => setEditing(null)} /> : null}
       {builder ? (
         <BuilderChat onClose={() => setBuilder(false)}
           onDraftReady={(d) => { setBuilder(false); setEditing({ ...d }); }} />
       ) : null}
+      {importing ? <ImportPackModal onClose={() => setImporting(false)} /> : null}
     </Page>
   );
 }

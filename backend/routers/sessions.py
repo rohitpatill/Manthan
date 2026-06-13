@@ -49,7 +49,7 @@ def _live_overlay_experts(conn, session: dict, experts: list[dict]) -> list[dict
         if not e.get("expert_id"):
             continue
         live = db.row_to_dict(conn.execute(
-            "SELECT name, title, persona, avatar_url, provider_type, model_id, max_words FROM experts WHERE id = ?",
+            "SELECT name, title, persona, avatar_url, provider_type, model_id, max_words, domain FROM experts WHERE id = ?",
             (e["expert_id"],)).fetchone())
         if live:
             e.update(live)
@@ -121,10 +121,10 @@ async def create_session(payload: SessionCreateIn):
             e = by_id[expert_id]
             conn.execute(
                 """INSERT INTO session_experts
-                   (session_id, expert_id, name, title, persona, avatar_url, provider_type, model_id, max_words, sort_order)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (session_id, expert_id, name, title, persona, avatar_url, provider_type, model_id, max_words, domain, sort_order)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (session_id, e["id"], e["name"], e["title"], e["persona"],
-                 e["avatar_url"], e["provider_type"], e["model_id"], e["max_words"], idx),
+                 e["avatar_url"], e["provider_type"], e["model_id"], e["max_words"], e["domain"], idx),
             )
         detail = _session_detail(conn, session_id)
     return {"status": "ok", **detail}
@@ -239,10 +239,10 @@ async def dispatch(session_id: int, payload: DispatchIn):
                 continue
             conn.execute(
                 """UPDATE session_experts
-                   SET name = ?, title = ?, persona = ?, avatar_url = ?, provider_type = ?, model_id = ?, max_words = ?
+                   SET name = ?, title = ?, persona = ?, avatar_url = ?, provider_type = ?, model_id = ?, max_words = ?, domain = ?
                    WHERE id = ?""",
                 (ex["name"], ex["title"], ex["persona"], ex["avatar_url"],
-                 ex["provider_type"], ex["model_id"], ex["max_words"], p["id"]),
+                 ex["provider_type"], ex["model_id"], ex["max_words"], ex["domain"], p["id"]),
             )
         conn.execute(
             "UPDATE sessions SET compiled_brief = ?, pending_brief = '', status = 'in_progress', updated_at = CURRENT_TIMESTAMP WHERE id = ?",

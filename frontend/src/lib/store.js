@@ -87,6 +87,7 @@ function mapExpert(e) {
     avatar: e.avatar_url ? { value: e.avatar_url } : null,
     provider: e.provider_type, model: e.model_id,
     maxWords: e.max_words ?? 300,
+    domain: e.domain || '', packKey: e.pack_key || '',
     starter: !!e.is_starter, color: colorFor(e.id),
   };
 }
@@ -396,6 +397,7 @@ export const API = {
       avatar_url: expert.avatar ? expert.avatar.value : '',
       provider_type: expert.provider, model_id: expert.model,
       max_words: expert.maxWords ?? 300,
+      domain: (expert.domain || '').trim(),
     };
     if (expert.id) await http('PUT', `/api/experts/${expert.id}`, body);
     else await http('POST', '/api/experts', body);
@@ -418,6 +420,7 @@ export const API = {
       name: data.expert.name, title: data.expert.title, persona: data.expert.persona,
       provider: data.expert.suggested_provider_type, model: data.expert.suggested_model_id,
       maxWords: data.expert.suggested_max_words ?? 300,
+      domain: data.expert.suggested_domain || '',
     } : null;
     return { message: data.assistant_message, ready: data.ready, draft };
   },
@@ -541,6 +544,12 @@ export const API = {
     state.analytics = null; notify();
   },
   async seedStarters() { await http('POST', '/api/seed-starters'); await loadExperts(); notify(); },
+  async previewPack() { return http('GET', '/api/experts/pack/preview'); },
+  async importPack(provider, model) {
+    const data = await http('POST', '/api/experts/pack/import', { provider_type: provider, model_id: model });
+    await loadExperts(); notify();
+    return data.added;
+  },
 };
 
 function titleFromBrief(brief) {

@@ -49,13 +49,20 @@ Output exactly one raw JSON object, no markdown fences:
     "persona": "...",
     "suggested_provider_type": "openai|gemini|anthropic",
     "suggested_model_id": "...",
-    "suggested_max_words": 300
+    "suggested_max_words": 300,
+    "suggested_domain": "..."
   } or null if not ready
 }
 
 suggested_max_words is the maximum word count this expert's answers should respect. Choose a
 value between 50 and 500. Default to 300 unless the user explicitly asks for shorter or longer
 responses (e.g. "keep it brief" → a smaller number; "I want detailed answers" → a larger one).
+
+suggested_domain is the category this expert belongs to. You are given the existing domains in
+the user's library. REUSE an existing domain when one reasonably fits (so the library stays
+tidy and avoids near-duplicate domains like "Physics" vs "Physical Sciences"). Only when none of
+the existing domains genuinely apply, propose a concise, well-formed new domain name (Title
+Case, broad enough to hold related experts).
 """.strip()
 
 SUGGEST_SYSTEM_PROMPT = """

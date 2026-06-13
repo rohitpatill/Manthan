@@ -57,6 +57,8 @@ def init_db() -> None:
                 provider_type TEXT NOT NULL,
                 model_id TEXT NOT NULL,
                 max_words INTEGER NOT NULL DEFAULT 300,
+                domain TEXT NOT NULL DEFAULT '',
+                pack_key TEXT NOT NULL DEFAULT '',
                 is_starter INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -89,6 +91,7 @@ def init_db() -> None:
                 provider_type TEXT NOT NULL,
                 model_id TEXT NOT NULL,
                 max_words INTEGER NOT NULL DEFAULT 300,
+                domain TEXT NOT NULL DEFAULT '',
                 sort_order INTEGER NOT NULL DEFAULT 0
             );
 
@@ -138,9 +141,15 @@ def init_db() -> None:
         expert_columns = {row["name"] for row in conn.execute("PRAGMA table_info(experts)").fetchall()}
         if "max_words" not in expert_columns:
             conn.execute("ALTER TABLE experts ADD COLUMN max_words INTEGER NOT NULL DEFAULT 300")
+        if "domain" not in expert_columns:
+            conn.execute("ALTER TABLE experts ADD COLUMN domain TEXT NOT NULL DEFAULT ''")
+        if "pack_key" not in expert_columns:
+            conn.execute("ALTER TABLE experts ADD COLUMN pack_key TEXT NOT NULL DEFAULT ''")
         session_expert_columns = {row["name"] for row in conn.execute("PRAGMA table_info(session_experts)").fetchall()}
         if "max_words" not in session_expert_columns:
             conn.execute("ALTER TABLE session_experts ADD COLUMN max_words INTEGER NOT NULL DEFAULT 300")
+        if "domain" not in session_expert_columns:
+            conn.execute("ALTER TABLE session_experts ADD COLUMN domain TEXT NOT NULL DEFAULT ''")
 
 
 def mask_key(key: str) -> str:

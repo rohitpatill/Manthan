@@ -88,12 +88,18 @@ backend/
 ├── db.py                 SQLite: connection ctx manager, init_db() schema + lightweight
 │                         migrations, DPAPI/base64 secret encryption, mask_key(), helpers
 │                         (row_to_dict, rows_to_dicts, get/set_setting, dumps/loads).
+├── data/expert_pack.json A curated, importable library of ~70 experts across 20 domains
+│                         (no avatars/model — model is chosen at import). Each entry has a
+│                         stable pack_key used for idempotent import (re-import adds only
+│                         entries whose pack_key is not already in the DB; never overwrites).
 ├── prompts.py            All system prompts + user-message builders: INTAKE, BUILDER, SUGGEST,
 │                         expert_system_prompt(), round2_user_message(), synthesis prompts.
 │                         Word limits are PARAMETERS: expert_system_prompt(...,max_words) and
 │                         round2_user_message(...,max_words) take the per-expert cap;
 │                         synthesis_system_prompt(max_words) takes the global synthesis cap.
-│                         BUILDER prompt also asks for a suggested_max_words (50–500, default 300).
+│                         BUILDER prompt also asks for a suggested_max_words (50–500, default 300)
+│                         and a suggested_domain (reuse an existing library domain if one fits,
+│                         else propose a concise new one).
 ├── requirements.txt      fastapi, uvicorn[standard], httpx, pydantic, python-multipart, pytest
 ├── .env                  (gitignored) OPENAI_API_KEY / GEMINI_API_KEY / ANTHROPIC_API_KEY
 ├── manthan.db            (gitignored) the live SQLite database (created on first run)
@@ -127,7 +133,10 @@ backend/
 │   │                     save+validate key, delete key, set default model, set app-settings
 │   │                     (PUT /app-settings → global synthesis_max_words).
 │   ├── experts.py        /api/experts : CRUD, duplicate, builder/chat (Manthan AI persona
-│   │                     designer), suggest (panel suggestion).
+│   │                     designer — fed existing domains, returns suggested_domain), suggest
+│   │                     (panel suggestion), pack/preview (what an import would add vs skip)
+│   │                     and pack/import (idempotent import of data/expert_pack.json, all
+│   │                     assigned the one model the user picks).
 │   ├── sessions.py       /api/sessions : create, list, detail, rename, delete, intake turn,
 │   │                     pending-brief save, back-to-briefing, dispatch (R1 SSE), round2 (SSE),
 │   │                     synthesize (SSE), expert retry (SSE). Holds _live_overlay_experts.
@@ -186,8 +195,11 @@ frontend/
     └── screens/
         ├── onboarding.jsx  First-run: paste+validate keys → pick default model. ProviderKeyCard.
         ├── home.jsx        Sessions list (in-progress + frozen archive). SessionRow.
-        ├── experts.jsx     Experts library, ExpertEditor (manual), BuilderChat (Manthan AI),
-        │                   expertNeedsReassignment().
+        ├── experts.jsx     Experts library grouped by domain in a collapsible DomainAccordion
+        │                   (first domain auto-opens once; Expand/Collapse all). ExpertEditor
+        │                   (manual; includes domain dropdown + max-words), BuilderChat (Manthan
+        │                   AI), ImportPackModal (pick one model → preview → idempotent import),
+        │                   groupByDomain(), expertNeedsReassignment().
         ├── session.jsx     Session lifecycle controller: NewSession (configure), IntakeChat,
         │                   BriefApproval, SessionScreen (routes to the right phase view).
         ├── panel.jsx       LivePanel (rounds + synthesis, stepper, stop banner, retry/resume),
@@ -228,6 +240,8 @@ experts(                                          -- the reusable persona librar
   id, name, title, persona, avatar_url,
   provider_type, model_id,
   max_words,                                      -- per-expert answer word cap (default 300, range 50–500)
+  domain,                                         -- category for grouping in the library (free text; '' = Others)
+  pack_key,                                       -- stable id for imported pack experts ('' for user-created); dedup key for import
   is_starter,
   created_at, updated_at)
 
@@ -242,9 +256,9 @@ sessions(
 session_experts(                                  -- snapshot of experts chosen for a session
   id, session_id→sessions, expert_id→experts (nullable if source deleted),
   name, title, persona, avatar_url,
-  provider_type, model_id, max_words, sort_order)
+  provider_type, model_id, max_words, domain, sort_order)
   -- Re-synced from the live expert at DISPATCH while not-yet-run; frozen after.
-  -- max_words is snapshotted/re-synced alongside model & persona.
+  -- max_words and domain are snapshotted/re-synced alongside model & persona.
 
 intake_messages(id, session_id→sessions, role, content, created_at)  -- the briefing chat
 
@@ -262,8 +276,8 @@ usage_log(                                        -- one row per LLM call (power
 
 `init_db()` also performs **idempotent migrations** (ALTER TABLE ADD COLUMN guarded by a
 PRAGMA check) for columns added over time (masked_key, pending_brief, experts.max_words,
-session_experts.max_words, etc.). Adding a new column = add it to the CREATE TABLE *and* add a
-guarded ALTER for existing DBs.
+experts.domain, experts.pack_key, session_experts.max_words, session_experts.domain, etc.).
+Adding a new column = add it to the CREATE TABLE *and* add a guarded ALTER for existing DBs.
 
 ---
 
@@ -298,10 +312,18 @@ drive the live panel and the resume/retry banners.
 
 ### 7.2 Experts
 - Manual: `experts.jsx` ExpertEditor → `POST/PUT /api/experts`. Avatar via
-  `POST /api/uploads/avatar` (file) or a pasted public URL.
+  `POST /api/uploads/avatar` (file) or a pasted public URL. The editor includes a `domain`
+  dropdown (existing domains + "Create new domain" + "Others").
+- Import pack: `ImportPackModal` → `GET /api/experts/pack/preview` (adds vs already-present,
+  by domain) → user picks ONE model for all → `POST /api/experts/pack/import {provider_type,
+  model_id}`. Idempotent by `pack_key`: re-import only restores deleted entries and never
+  duplicates or overwrites edited ones (editing a pack expert keeps its pack_key).
+- Library is grouped by `domain` and rendered as a collapsible accordion (see experts.jsx).
 - Via Manthan AI: BuilderChat → `POST /api/experts/builder/chat {messages}` → returns a drafted
   `{name, title, persona, suggested_provider_type, suggested_model_id, suggested_max_words}` for
   review, then saved. `suggested_max_words` defaults to 300 unless the user asked for shorter/longer.
+  The builder is fed the library's existing domains and returns `suggested_domain` (reusing one
+  if it fits, else proposing a concise new domain).
 - Each expert carries a `max_words` cap (default 300, range 50–500), editable in the Expert editor;
   it is injected into that expert's own Round 1 & Round 2 prompts only (never mixed across experts).
 - Suggestion (in NewSession): `POST /api/experts/suggest {problem}` → relevant expert ids.
@@ -420,6 +442,8 @@ npm run build             # production bundle to dist/
 | Add/adjust a model or pricing | `backend/providers/registry.py` (frontend reads it via `/api/providers`). |
 | Add a new LLM provider | New `providers/<x>_provider.py` extending `BaseProvider` (impl `validate_api_key`, `generate_json`, `stream_text`); register in `factory.py`; add to `PROVIDER_CATALOG`; add display meta in `frontend/src/lib/catalog.js`. |
 | Change an LLM prompt | `backend/prompts.py` (intake, builder, suggest, expert system prompt, round-2 context, synthesis). Verify via the session log. |
+| Add/edit pack experts | Edit `backend/data/expert_pack.json` (each needs a unique `pack_key`, plus name/title/domain/persona). Count is read live — no code change. Re-import is idempotent by `pack_key`. |
+| Add/rename a domain | Domains are free text on `experts.domain` — just type a new one in the editor, set it in the pack JSON, or let the AI builder propose it. No table, no migration. Library grouping (`groupByDomain`/`DomainAccordion` in `experts.jsx`) picks it up automatically. |
 | Adjust answer word limits | Per-expert: `experts.max_words` (UI in `experts.jsx` ExpertEditor; flows store → `prompts.expert_system_prompt`/`round2_user_message`). Global synthesis: `synthesis_max_words` setting (UI in `settings.jsx`; `PUT /api/providers/app-settings`; read in `orchestrator._synthesis_max_words` → `prompts.synthesis_system_prompt`). |
 | Add a DB column | `db.py :: init_db` — add to CREATE TABLE **and** a guarded `ALTER TABLE ADD COLUMN`. |
 | New API endpoint | Add to the relevant `routers/*.py`; mount is automatic if the router is already included in `main.py`. |
