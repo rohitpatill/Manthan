@@ -24,6 +24,9 @@ economist, an ethicist, and a strategist — separately — and you don't get th
 times. You get four genuinely different framings, you see where they *disagree*, and the final
 decision is far stronger because it survived all of them.
 
+<img width="1350" height="1011" alt="image11" src="https://github.com/user-attachments/assets/266ceb40-b189-404e-8a3f-2480c1d40b85" />
+
+
 **Manthan brings that to AI.**
 
 > **A note on how this actually works (the honest version).**
