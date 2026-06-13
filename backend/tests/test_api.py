@@ -362,7 +362,23 @@ def test_analytics():
     assert len(body["by_model"]) >= 1
     assert len(body["by_expert"]) >= 1
     assert len(body["by_session"]) >= 1
-    assert len(body["by_day"]) >= 1
+    assert len(body["by_provider"]) >= 1
+    assert len(body["by_purpose"]) >= 1
+    assert len(body["series"]) >= 1
+
+
+def test_analytics_filters():
+    # range + granularity + provider filters all work and validate
+    assert client.get("/api/analytics?range=bad").status_code == 400
+    assert client.get("/api/analytics?granularity=bad").status_code == 400
+    weekly = client.get("/api/analytics?range=all&granularity=weekly").json()
+    assert weekly["granularity"] == "weekly" and "series" in weekly
+    monthly = client.get("/api/analytics?range=all&granularity=monthly").json()
+    assert monthly["granularity"] == "monthly"
+    # provider filter narrows the rollups to that provider only
+    one = client.get("/api/analytics?provider=openai&range=all").json()
+    assert all(r["provider_type"] == "openai" for r in one["by_provider"])
+    assert one["totals"]["cost"] <= client.get("/api/analytics?range=all").json()["totals"]["cost"] + 1e-9
 
 
 def test_avatar_upload():
