@@ -125,6 +125,7 @@ async def builder_chat(payload: BuilderChatIn):
         provider_type=provider_type, model_id=model_id, api_key=api_key,
         system_prompt=prompts.BUILDER_SYSTEM_PROMPT, messages=messages,
         max_tokens=config.BUILDER_MAX_TOKENS,
+        log_purpose="builder",
     )
     with db.get_conn() as conn:
         llm.record_usage(conn, session_id=None, expert_name="Manthan AI",
@@ -150,6 +151,7 @@ async def suggest_experts(payload: SuggestIn):
         provider_type=provider_type, model_id=model_id, api_key=api_key,
         system_prompt=prompts.SUGGEST_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_msg}], max_tokens=400,
+        log_purpose="suggest",
     )
     valid_ids = {e["id"] for e in experts}
     suggested = [i for i in parsed.get("expert_ids", []) if i in valid_ids]

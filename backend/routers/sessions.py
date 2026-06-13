@@ -173,6 +173,7 @@ async def intake_turn(session_id: int, payload: IntakeIn):
         system_prompt=prompts.INTAKE_SYSTEM_PROMPT,
         messages=[{"role": m["role"], "content": m["content"]} for m in history],
         max_tokens=config.INTAKE_MAX_TOKENS,
+        log_session_id=session_id, log_purpose="intake",
     )
     assistant_message = parsed.get("assistant_message", "")
     ready = bool(parsed.get("ready_to_dispatch"))
@@ -246,6 +247,9 @@ async def dispatch(session_id: int, payload: DispatchIn):
         conn.execute(
             "UPDATE sessions SET compiled_brief = ?, pending_brief = '', status = 'in_progress', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             (payload.brief.strip(), session_id))
+    from services import session_logger
+    session_logger.log_session_event(session_id, "Brief approved — dispatching round 1",
+                                      detail=payload.brief.strip())
     ctx = orchestrator.validate_round(session_id, 1)
     return StreamingResponse(orchestrator.run_round(ctx),
                              media_type="text/event-stream", headers=SSE_HEADERS)

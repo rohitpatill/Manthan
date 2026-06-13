@@ -18,6 +18,11 @@ _TMP.mkdir(parents=True, exist_ok=True)
 config.DB_PATH = _TMP / "test_manthan.db"
 if config.DB_PATH.exists():
     config.DB_PATH.unlink()
+# redirect session logs into tests/tmp/logs so the suite doesn't litter backend/logs
+config.LOGS_DIR = _TMP / "logs"
+import shutil
+if config.LOGS_DIR.exists():
+    shutil.rmtree(config.LOGS_DIR)
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -232,6 +237,30 @@ def test_frozen_session_is_readonly(session_id):
     assert r.status_code == 409
     with client.stream("POST", f"/api/sessions/{session_id}/round2") as r:
         assert r.status_code == 409
+
+
+def test_session_log_files_written(session_id):
+    """The full deliberation must be traceable in per-session .md + .jsonl logs."""
+    import json as _json
+    jsonl = config.LOGS_DIR / f"session_{session_id}.jsonl"
+    md = config.LOGS_DIR / f"session_{session_id}.md"
+    assert jsonl.exists() and md.exists()
+    records = [_json.loads(line) for line in jsonl.read_text(encoding="utf-8").splitlines() if line.strip()]
+    purposes = [r["purpose"] for r in records]
+    # this session ran R1 + synthesis + R2 + synthesis with 3 experts
+    assert purposes.count("expert_r1") == 3
+    assert purposes.count("expert_r2") == 3
+    assert "synthesis_r1" in purposes and "synthesis_r2" in purposes
+    assert "intake" in purposes
+    # every logged call captured the full system prompt + input + output
+    for r in records:
+        assert r["system_prompt"] and r["input_messages"]
+    # a round-2 expert call must contain the structured round-2 prompt (peers + synthesis)
+    r2 = next(r for r in records if r["purpose"] == "expert_r2")
+    body = r2["input_messages"][0]["content"]
+    assert "round 2" in body.lower() and "round-1 synthesis" in body
+    # readable timeline mentions the dispatch boundary
+    assert "dispatching round 1" in md.read_text(encoding="utf-8").lower()
 
 
 def test_round2_prompt_includes_synthesis_and_structure():

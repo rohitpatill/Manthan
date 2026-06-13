@@ -57,19 +57,37 @@ def record_usage(conn, *, session_id: int | None, expert_name: str, provider_typ
 
 
 async def call_json(*, provider_type: str, model_id: str, api_key: str,
-                    system_prompt: str, messages: list[dict], max_tokens: int) -> tuple[dict, dict]:
-    """Run a structured call; returns (parsed_json, usage). Raises HTTPException on bad JSON."""
+                    system_prompt: str, messages: list[dict], max_tokens: int,
+                    log_session_id: int | None = None, log_purpose: str = "",
+                    log_expert_name: str = "Manthan AI") -> tuple[dict, dict]:
+    """Run a structured call; returns (parsed_json, usage). Raises HTTPException on bad JSON.
+
+    If log_purpose is set, the full call is written to the session log (or manthan-ai.jsonl
+    when log_session_id is None)."""
+    import time
+    from providers import compute_cost
+    from services import session_logger
+
     provider = get_provider(provider_type)
+    started = time.monotonic()
     result = await provider.generate_json(
         api_key=api_key, model=model_id, system_prompt=system_prompt,
         messages=messages, max_tokens=max_tokens,
     )
     text = result["text"].strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+    usage = result.get("usage", {})
+    if log_purpose:
+        session_logger.log_call(
+            log_session_id, purpose=log_purpose, provider=provider_type, model=model_id,
+            system_prompt=system_prompt, messages=messages, output=result["text"], usage=usage,
+            cost=compute_cost(provider_type, model_id, usage.get("input_tokens", 0), usage.get("output_tokens", 0)),
+            duration_ms=int((time.monotonic() - started) * 1000), expert_name=log_expert_name,
+        )
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=502, detail="The model returned malformed JSON. Please try again.") from exc
-    return parsed, result.get("usage", {})
+    return parsed, usage
 
 
 def split_stance(content: str) -> tuple[str, str]:

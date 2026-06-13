@@ -16,11 +16,13 @@ from typing import AsyncIterator
 
 from fastapi import HTTPException
 
+import time
+
 import config
 import db
 import prompts
 from providers import ProviderError, get_provider
-from services import llm
+from services import llm, session_logger
 
 
 def sse(payload: dict) -> str:
@@ -96,11 +98,12 @@ async def _run_one_expert(session: dict, expert: dict, round_number: int,
     """Run a single expert call, pushing SSE events to the shared queue and persisting the result."""
     expert_id = expert["id"]
     purpose = f"expert_r{round_number}"
+    system = prompts.expert_system_prompt(expert["name"], expert["title"], expert["persona"])
+    messages: list[dict] = []
     await queue.put(sse({"type": "expert_start", "expert_id": expert_id, "name": expert["name"], "round": round_number}))
     try:
         with db.get_conn() as conn:
             api_key = llm.get_api_key(conn, expert["provider_type"])
-        system = prompts.expert_system_prompt(expert["name"], expert["title"], expert["persona"])
         if round_number == 1:
             messages = [{"role": "user", "content": session["compiled_brief"]}]
         else:
@@ -113,6 +116,7 @@ async def _run_one_expert(session: dict, expert: dict, round_number: int,
         provider = get_provider(expert["provider_type"])
         full_text: list[str] = []
         usage: dict = {}
+        started = time.monotonic()
         async for event in provider.stream_text(
             api_key=api_key, model=expert["model_id"], system_prompt=system,
             messages=messages, max_tokens=config.EXPERT_MAX_TOKENS,
@@ -122,8 +126,8 @@ async def _run_one_expert(session: dict, expert: dict, round_number: int,
                 await queue.put(sse({"type": "chunk", "expert_id": expert_id, "round": round_number, "text": event["text"]}))
             elif event["type"] == "usage":
                 usage = event["usage"]
-        content = "".join(full_text)
-        stance, content = llm.split_stance(content)
+        raw_output = "".join(full_text)
+        stance, content = llm.split_stance(raw_output)
         _save_response(session["id"], expert_id, "expert", round_number, stance, content, "done")
         with db.get_conn() as conn:
             usage_out = llm.record_usage(
@@ -131,11 +135,23 @@ async def _run_one_expert(session: dict, expert: dict, round_number: int,
                 provider_type=expert["provider_type"], model_id=expert["model_id"],
                 purpose=purpose, usage=usage,
             )
+        session_logger.log_call(
+            session["id"], purpose=purpose, provider=expert["provider_type"], model=expert["model_id"],
+            system_prompt=system, messages=messages, output=raw_output, usage=usage,
+            cost=usage_out["cost"], duration_ms=int((time.monotonic() - started) * 1000),
+            expert_name=expert["name"], round_number=round_number,
+        )
         await queue.put(sse({"type": "expert_done", "expert_id": expert_id, "round": round_number,
                              "stance": stance, "usage": usage_out}))
     except (ProviderError, HTTPException, Exception) as exc:
         detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
         _save_response(session["id"], expert_id, "expert", round_number, "", "", "failed", detail[:500])
+        session_logger.log_call(
+            session["id"], purpose=purpose, provider=expert["provider_type"], model=expert["model_id"],
+            system_prompt=system, messages=messages, output="",
+            usage={}, cost=0, duration_ms=0, expert_name=expert["name"], round_number=round_number,
+            status="failed", error=detail[:500],
+        )
         await queue.put(sse({"type": "expert_failed", "expert_id": expert_id, "round": round_number, "error": detail[:500]}))
 
 
@@ -273,9 +289,11 @@ async def run_synthesis(ctx: dict) -> AsyncIterator[str]:
     provider = get_provider(provider_type)
     system = prompts.synthesis_system_prompt()
     user_message = prompts.synthesis_user_message(session["compiled_brief"], done_answers, round_number, missing)
+    purpose = f"synthesis_r{round_number}"
     try:
         full_text: list[str] = []
         usage: dict = {}
+        started = time.monotonic()
         async for event in provider.stream_text(
             api_key=api_key, model=model_id, system_prompt=system,
             messages=[{"role": "user", "content": user_message}],
@@ -286,8 +304,8 @@ async def run_synthesis(ctx: dict) -> AsyncIterator[str]:
                 yield sse({"type": "chunk", "expert_id": None, "round": round_number, "text": event["text"]})
             elif event["type"] == "usage":
                 usage = event["usage"]
-        content = "".join(full_text)
-        stance, content = llm.split_stance(content)
+        raw_output = "".join(full_text)
+        stance, content = llm.split_stance(raw_output)
         _save_response(session_id, None, "synthesis", round_number, stance, content, "done")
         with db.get_conn() as conn:
             column = "synth1_done" if round_number == 1 else "synth2_done"
@@ -295,13 +313,26 @@ async def run_synthesis(ctx: dict) -> AsyncIterator[str]:
             usage_out = llm.record_usage(
                 conn, session_id=session_id, expert_name="Manthan AI",
                 provider_type=provider_type, model_id=model_id,
-                purpose=f"synthesis_r{round_number}", usage=usage,
+                purpose=purpose, usage=usage,
             )
             status = refresh_status(conn, session_id)
+        session_logger.log_call(
+            session_id, purpose=purpose, provider=provider_type, model=model_id,
+            system_prompt=system, messages=[{"role": "user", "content": user_message}],
+            output=raw_output, usage=usage, cost=usage_out["cost"],
+            duration_ms=int((time.monotonic() - started) * 1000),
+            expert_name="Manthan AI", round_number=round_number,
+        )
         yield sse({"type": "synthesis_done", "round": round_number, "stance": stance, "usage": usage_out})
         yield sse({"type": "stage_done", "stage": f"synthesis{round_number}", "session_status": status})
     except (ProviderError, Exception) as exc:
         if isinstance(exc, HTTPException):
             raise
         _save_response(session_id, None, "synthesis", round_number, "", "", "failed", str(exc)[:500])
+        session_logger.log_call(
+            session_id, purpose=purpose, provider=provider_type, model=model_id,
+            system_prompt=system, messages=[{"role": "user", "content": user_message}],
+            output="", usage={}, cost=0, duration_ms=0, expert_name="Manthan AI",
+            round_number=round_number, status="failed", error=str(exc)[:500],
+        )
         yield sse({"type": "synthesis_failed", "round": round_number, "error": str(exc)[:500]})
