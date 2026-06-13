@@ -38,9 +38,12 @@ AVATARS_DIR.mkdir(parents=True, exist_ok=True)
 # (used by the test suite — no real API keys or network needed).
 MOCK_MODE = os.getenv("MANTHAN_MOCK") == "1"
 
-# Word cap turned into a token budget for expert answers (~500 words).
-EXPERT_MAX_TOKENS = 900
-SYNTHESIS_MAX_TOKENS = 1500
+# Generous output ceilings so answers are never truncated mid-sentence. The actual length
+# is governed by each expert's max_words / the synthesis word cap in the prompt; these are
+# just the hard upper bound. For thinking models, Gemini's thinkingBudget is capped small
+# (see gemini_provider) so this budget goes to the visible answer, not internal thinking.
+EXPERT_MAX_TOKENS = 5000
+SYNTHESIS_MAX_TOKENS = 5000
 # Default global word limit for the synthesis (user-editable in Settings).
 SYNTHESIS_MAX_WORDS_DEFAULT = 700
 INTAKE_MAX_TOKENS = 1600

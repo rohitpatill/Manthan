@@ -35,12 +35,12 @@ class GeminiProvider(BaseProvider):
             role = "model" if message["role"] == "assistant" else "user"
             contents.append({"role": role, "parts": [{"text": message["content"]}]})
         generation_config: dict = {"maxOutputTokens": max_tokens}
+        # Thinking models (e.g. Gemini 3.x Pro) otherwise spend most of maxOutputTokens
+        # "thinking", leaving too little budget for the visible answer and truncating it
+        # mid-sentence. Keep the thinking budget small so the tokens go to the actual output.
+        generation_config["thinkingConfig"] = {"thinkingBudget": 256}
         if json_mode:
             generation_config["responseMimeType"] = "application/json"
-            # Thinking models (e.g. Gemini 3.x Pro) otherwise spend most of maxOutputTokens
-            # "thinking", leaving too little budget for the JSON and truncating it. For these
-            # structured utility calls a small thinking budget is plenty and avoids truncation.
-            generation_config["thinkingConfig"] = {"thinkingBudget": 256}
         return {
             "system_instruction": {"parts": [{"text": system_prompt}]},
             "contents": contents,
